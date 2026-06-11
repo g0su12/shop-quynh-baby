@@ -1,0 +1,16 @@
+name = "quynh-baby-shop"
+compatibility_date = "2026-06-09"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "quynh-baby-shop"
+database_id = "replace-with-cloudflare-d1-database-id"
+
+[[r2_buckets]]
+binding = "PRODUCT_IMAGES"
+bucket_name = "product-images"
+
+[[r2_buckets]]
+binding = "TRY_ON_IMAGES"
+bucket_name = "try-on-images"

@@ -1,0 +1,30 @@
+{
+  "name": "quynh-baby-shop-website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "cf:dev": "npm run build && wrangler pages dev dist",
+    "db:migrate:local": "wrangler d1 migrations apply quynh-baby-shop --local",
+    "db:migrate:remote": "wrangler d1 migrations apply quynh-baby-shop --remote",
+    "admin:hash": "node scripts/hash-admin-password.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
+    "@vitejs/plugin-react": "6.0.2",
+    "lucide-react": "1.17.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260609.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "6.0.3",
+    "vite": "8.0.16",
+    "wrangler": "4.98.0"
+  }
+}
