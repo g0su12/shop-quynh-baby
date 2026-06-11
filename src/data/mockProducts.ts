@@ -15,7 +15,13 @@ export const products: Product[] = [
     colors: ["Kem", "Xanh mint"],
     stockStatus: "in_stock",
     isFeatured: true,
+    isVisible: true,
     imageUrl: mockImage,
+    images: [],
+    variants: [
+      { id: "v001", sizeLabel: "80", colorLabel: "Kem", stockStatus: "in_stock" },
+      { id: "v002", sizeLabel: "90", colorLabel: "Xanh mint", stockStatus: "in_stock" },
+    ],
     description: "Chất cotton mềm, form thoải mái cho bé mặc hằng ngày.",
   },
   {
@@ -30,7 +36,13 @@ export const products: Product[] = [
     colors: ["Hồng", "Trắng"],
     stockStatus: "low_stock",
     isFeatured: true,
+    isVisible: true,
     imageUrl: mockImage,
+    images: [],
+    variants: [
+      { id: "v003", sizeLabel: "90", colorLabel: "Hồng", stockStatus: "low_stock" },
+      { id: "v004", sizeLabel: "100", colorLabel: "Trắng", stockStatus: "in_stock" },
+    ],
     description: "Váy mềm, màu sáng, hợp đi chơi hoặc chụp ảnh gia đình.",
   },
   {
@@ -45,7 +57,14 @@ export const products: Product[] = [
     colors: ["Xanh", "Be"],
     stockStatus: "in_stock",
     isFeatured: true,
+    isVisible: true,
     imageUrl: mockImage,
+    images: [],
+    variants: [
+      { id: "v005", sizeLabel: "100", colorLabel: "Xanh", stockStatus: "in_stock" },
+      { id: "v006", sizeLabel: "110", colorLabel: "Be", stockStatus: "in_stock" },
+      { id: "v007", sizeLabel: "120", colorLabel: "Be", stockStatus: "in_stock" },
+    ],
     description: "Áo thun nhẹ, dễ phối với quần short hoặc quần dài.",
   },
   {
@@ -60,7 +79,17 @@ export const products: Product[] = [
     colors: ["Nâu nhạt", "Xanh nhạt"],
     stockStatus: "out_of_stock",
     isFeatured: false,
+    isVisible: true,
     imageUrl: mockImage,
+    images: [],
+    variants: [
+      {
+        id: "v008",
+        sizeLabel: "90",
+        colorLabel: "Nâu nhạt",
+        stockStatus: "out_of_stock",
+      },
+    ],
     description: "Form rộng, mặc mát, phù hợp thời tiết nóng.",
   },
 ];

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   MapPin,
   MessageCircle,
@@ -16,11 +16,12 @@ import {
 } from "@phosphor-icons/react";
 import SiteSwitcher from "./components/SiteSwitcher";
 import AdminPage from "./pages/AdminPage";
+import { fetchPublicProducts } from "./api/products";
 import {
   ageOptions,
   categoryOptions,
   genderOptions,
-  products,
+  products as mockProducts,
 } from "./data/mockProducts";
 import type { Gender, Product, StockStatus } from "./types";
 
@@ -76,17 +77,36 @@ const genderValue: Record<string, Gender | "all"> = {
 };
 
 function PublicCatalog() {
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>(mockProducts);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("Tất cả");
   const [gender, setGender] = useState("Tất cả");
   const [age, setAge] = useState("Tất cả");
 
-  const featuredProducts = products.filter((product) => product.isFeatured);
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadProducts() {
+      const nextProducts = await fetchPublicProducts();
+
+      if (!ignore) {
+        setCatalogProducts(nextProducts);
+      }
+    }
+
+    void loadProducts();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const featuredProducts = catalogProducts.filter((product) => product.isFeatured);
 
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
-    return products.filter((product) => {
+    return catalogProducts.filter((product) => {
       const matchesSearch =
         !normalizedSearch ||
         product.name.toLowerCase().includes(normalizedSearch) ||
@@ -100,7 +120,7 @@ function PublicCatalog() {
 
       return matchesSearch && matchesCategory && matchesGender && matchesAge;
     });
-  }, [age, category, gender, search]);
+  }, [age, catalogProducts, category, gender, search]);
 
   return (
     <main>

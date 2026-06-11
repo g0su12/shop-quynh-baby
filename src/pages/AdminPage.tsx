@@ -20,8 +20,15 @@ import {
   Storefront,
 } from "@phosphor-icons/react";
 import SiteSwitcher from "../components/SiteSwitcher";
-import { products } from "../data/mockProducts";
-import type { Product, StockStatus } from "../types";
+import ProductFormModal from "../components/ProductFormModal";
+import {
+  createProduct,
+  fetchAdminProducts,
+  setProductVisibility,
+  updateProduct,
+} from "../api/products";
+import { products as mockProducts } from "../data/mockProducts";
+import type { Product, ProductInput, StockStatus } from "../types";
 
 type TryOnRequest = {
   id: string;
@@ -136,13 +143,55 @@ function AdminPage() {
 }
 
 function AdminDashboard({ onLogout }: { onLogout: () => void }) {
-  const visibleProducts = products.filter(
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>(mockProducts);
+  const [catalogError, setCatalogError] = useState("");
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [isProductFormOpen, setIsProductFormOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadProducts() {
+      try {
+        const nextProducts = await fetchAdminProducts();
+
+        if (!ignore) {
+          setCatalogProducts(nextProducts);
+          setCatalogError("");
+        }
+      } catch (error) {
+        if (!ignore) {
+          setCatalogError(
+            error instanceof Error
+              ? error.message
+              : "Không thể tải dữ liệu sản phẩm từ D1.",
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoadingProducts(false);
+        }
+      }
+    }
+
+    void loadProducts();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const visibleProducts = catalogProducts.filter(
     (product) => product.stockStatus !== "out_of_stock",
   ).length;
-  const lowStockProducts = products.filter(
+  const lowStockProducts = catalogProducts.filter(
     (product) => product.stockStatus === "low_stock",
   ).length;
-  const featuredProducts = products.filter((product) => product.isFeatured).length;
+  const featuredProducts = catalogProducts.filter(
+    (product) => product.isFeatured,
+  ).length;
 
   return (
     <main className="admin-shell">
@@ -157,7 +206,11 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
             <Upload aria-hidden="true" />
             <span>Ảnh</span>
           </button>
-          <button className="primary-button" type="button">
+          <button
+            className="primary-button"
+            onClick={() => openProductForm(null)}
+            type="button"
+          >
             <Plus aria-hidden="true" />
             <span>Sản phẩm</span>
           </button>
@@ -220,14 +273,34 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                 <p className="eyebrow">Catalog</p>
                 <h2>Sản phẩm</h2>
               </div>
-              <button className="primary-button" type="button">
+              <button
+                className="primary-button"
+                onClick={() => openProductForm(null)}
+                type="button"
+              >
                 <Plus aria-hidden="true" />
                 <span>Thêm mẫu</span>
               </button>
             </div>
+            {catalogError ? (
+              <div className="admin-data-notice" role="status">
+                <strong>Đang hiển thị dữ liệu mẫu.</strong>
+                <span>{catalogError}</span>
+              </div>
+            ) : null}
+            {isLoadingProducts ? (
+              <div className="admin-data-notice" role="status">
+                Đang tải sản phẩm từ D1...
+              </div>
+            ) : null}
             <div className="admin-product-list">
-              {products.map((product) => (
-                <AdminProductRow key={product.id} product={product} />
+              {catalogProducts.map((product) => (
+                <AdminProductRow
+                  key={product.id}
+                  onEdit={() => openProductForm(product)}
+                  onToggleVisibility={() => void handleVisibilityToggle(product)}
+                  product={product}
+                />
               ))}
             </div>
           </section>
@@ -296,8 +369,74 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
           </section>
         </div>
       </section>
+      {isProductFormOpen ? (
+        <ProductFormModal
+          isSaving={isSavingProduct}
+          onClose={() => setIsProductFormOpen(false)}
+          onSave={handleProductSave}
+          product={editingProduct}
+        />
+      ) : null}
     </main>
   );
+
+  function openProductForm(product: Product | null) {
+    setEditingProduct(product);
+    setIsProductFormOpen(true);
+    setCatalogError("");
+  }
+
+  async function handleProductSave(input: ProductInput) {
+    setIsSavingProduct(true);
+    setCatalogError("");
+
+    try {
+      const savedProduct = editingProduct
+        ? await updateProduct(editingProduct.id, input)
+        : await createProduct(input);
+
+      setCatalogProducts((current) => {
+        if (editingProduct) {
+          return current.map((product) =>
+            product.id === savedProduct.id ? savedProduct : product,
+          );
+        }
+
+        return [savedProduct, ...current];
+      });
+      setIsProductFormOpen(false);
+      setEditingProduct(null);
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error ? error.message : "Không thể lưu sản phẩm.",
+      );
+      throw error;
+    } finally {
+      setIsSavingProduct(false);
+    }
+  }
+
+  async function handleVisibilityToggle(product: Product) {
+    setCatalogError("");
+
+    try {
+      const updatedProduct = await setProductVisibility(
+        product.id,
+        !product.isVisible,
+      );
+      setCatalogProducts((current) =>
+        current.map((item) =>
+          item.id === updatedProduct.id ? updatedProduct : item,
+        ),
+      );
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error
+          ? error.message
+          : "Không thể thay đổi trạng thái hiển thị.",
+      );
+    }
+  }
 }
 
 function AdminLoginPage() {
@@ -430,9 +569,19 @@ function AdminStat({ icon: Icon, label, value }: AdminStatProps) {
   );
 }
 
-function AdminProductRow({ product }: { product: Product }) {
+type AdminProductRowProps = {
+  product: Product;
+  onEdit: () => void;
+  onToggleVisibility: () => void;
+};
+
+function AdminProductRow({
+  product,
+  onEdit,
+  onToggleVisibility,
+}: AdminProductRowProps) {
   return (
-    <article className="admin-product-row">
+    <article className="admin-product-row" data-hidden={!product.isVisible}>
       <img src={product.imageUrl} alt={product.name} />
       <div className="admin-product-main">
         <div>
@@ -451,13 +600,17 @@ function AdminProductRow({ product }: { product: Product }) {
         {stockLabel[product.stockStatus]}
       </span>
       <div className="admin-row-actions">
-        <button className="secondary-button" type="button">
+        <button className="secondary-button" onClick={onEdit} type="button">
           <Pencil aria-hidden="true" />
           <span>Sửa</span>
         </button>
-        <button className="secondary-button" type="button">
+        <button
+          className="secondary-button"
+          onClick={onToggleVisibility}
+          type="button"
+        >
           <Archive aria-hidden="true" />
-          <span>Ẩn</span>
+          <span>{product.isVisible ? "Ẩn" : "Hiện"}</span>
         </button>
       </div>
     </article>

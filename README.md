@@ -59,3 +59,25 @@ npm run db:migrate:remote
 ```
 
 5. Deploy with Cloudflare Pages using `npm run build` and `dist` as the output directory.
+
+## Product Data
+
+The catalog now uses D1 through these Pages Functions:
+
+- `GET /api/products`: public visible products.
+- `GET /api/admin/products`: complete admin catalog.
+- `POST /api/admin/products`: create a product.
+- `PUT /api/admin/products/:id`: replace product details and variants.
+- `PATCH /api/admin/products/:id`: change public visibility.
+
+Admin endpoints require the signed admin session cookie.
+
+Useful local checks:
+
+```bash
+npm run db:migrate:local
+npm run cf:functions:build
+npm run cf:dev
+```
+
+Product images still use the local placeholder. R2 upload is the next implementation phase.

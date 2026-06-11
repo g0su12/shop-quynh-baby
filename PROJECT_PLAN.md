@@ -26,7 +26,7 @@ Mục tiêu chính:
 
 ### Public website
 
-- [x] Trang danh sách sản phẩm bản mock đầu tiên.
+- [x] Trang danh sách sản phẩm đọc từ D1, fallback mock khi API local chưa chạy.
 - [ ] Trang chi tiết sản phẩm.
 - [x] Bộ lọc theo:
   - [x] Bé trai / bé gái / unisex.
@@ -37,7 +37,7 @@ Mục tiêu chính:
 - [x] Tìm kiếm theo tên sản phẩm, size, danh mục.
 - [ ] Hiển thị ảnh chính và ảnh phụ.
 - [x] Không hiển thị giá ở public.
-- [x] Hiển thị size/màu còn hàng bản mock.
+- [x] Hiển thị size/màu còn hàng từ product variants.
 - [x] Thêm icon/category tile sinh động bằng Phosphor duotone.
 - [x] Nút liên hệ nhanh:
   - [x] Zalo.
@@ -50,15 +50,15 @@ Mục tiêu chính:
 
 - [x] Scaffold admin route `/admin` bản UI đầu tiên.
 - [x] Đăng nhập admin single-admin, không có signup.
-- [x] Xem danh sách sản phẩm trong admin bằng mock data.
-- [ ] Tạo sản phẩm mới.
-- [ ] Sửa thông tin sản phẩm.
-- [ ] Ẩn/hiện sản phẩm.
+- [x] Xem danh sách sản phẩm trong admin từ D1.
+- [x] Tạo sản phẩm mới.
+- [x] Sửa thông tin sản phẩm.
+- [x] Ẩn/hiện sản phẩm.
 - [ ] Xóa sản phẩm hoặc đánh dấu archived.
 - [ ] Upload nhiều ảnh cho một sản phẩm.
 - [ ] Chọn ảnh đại diện.
-- [ ] Quản lý size/màu/tình trạng còn hàng.
-- [ ] Đánh dấu sản phẩm nổi bật.
+- [x] Quản lý size/màu/tình trạng còn hàng.
+- [x] Đánh dấu sản phẩm nổi bật.
 - [x] Xem danh sách yêu cầu thử đồ bằng mock data.
 
 ### Chưa làm trong MVP
@@ -291,7 +291,7 @@ Flow an toàn hơn:
 - [x] Dựng D1 schema ban đầu.
 - [x] Dựng admin shell route `/admin` bản mock.
 - [x] Dựng admin auth.
-- [ ] Dựng admin CRUD sản phẩm.
+- [x] Dựng admin CRUD sản phẩm với D1, chưa gồm xóa vĩnh viễn.
 - [ ] Dựng upload ảnh sản phẩm.
 - [ ] Dựng product detail page.
 - [x] Dựng filter/search bản mock.

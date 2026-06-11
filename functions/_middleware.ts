@@ -4,8 +4,13 @@ export const onRequest: PagesFunction<AdminAuthEnv> = async (context) => {
   const url = new URL(context.request.url);
   const isAdminPage = url.pathname === "/admin" || url.pathname.startsWith("/admin/");
   const isLoginPage = url.pathname === "/admin/login";
+  const isAdminApi = url.pathname.startsWith("/api/admin/");
+  const isPublicAdminApi =
+    url.pathname === "/api/admin/login" ||
+    url.pathname === "/api/admin/logout" ||
+    url.pathname === "/api/admin/session";
 
-  if (!isAdminPage || isLoginPage) {
+  if ((!isAdminPage && !isAdminApi) || isLoginPage || isPublicAdminApi) {
     return context.next();
   }
 
@@ -16,6 +21,10 @@ export const onRequest: PagesFunction<AdminAuthEnv> = async (context) => {
 
   if (isAuthenticated) {
     return context.next();
+  }
+
+  if (isAdminApi) {
+    return Response.json({ message: "Bạn cần đăng nhập admin." }, { status: 401 });
   }
 
   const loginUrl = new URL("/admin/login", url.origin);
