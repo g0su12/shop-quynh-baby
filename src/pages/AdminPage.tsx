@@ -1,4 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+} from "react";
 import {
   Archive,
   Check,
@@ -71,6 +77,14 @@ const stockLabel: Record<StockStatus, string> = {
 };
 
 type AuthStatus = "checking" | "authenticated" | "unauthenticated";
+type AdminSectionId = "overview" | "products" | "try-on" | "media";
+
+const adminSectionIds: AdminSectionId[] = [
+  "overview",
+  "products",
+  "try-on",
+  "media",
+];
 
 function AdminPage() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>(() => {
@@ -154,6 +168,11 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [pendingCreatedProduct, setPendingCreatedProduct] =
     useState<Product | null>(null);
+  const [activeSection, setActiveSection] = useState<AdminSectionId>(() =>
+    getInitialAdminSection(),
+  );
+  const navigationLockRef = useRef<AdminSectionId | null>(null);
+  const navigationLockTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -188,6 +207,45 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     };
   }, []);
 
+  useEffect(() => {
+    function updateActiveSection() {
+      if (navigationLockRef.current) {
+        setActiveSection(navigationLockRef.current);
+        return;
+      }
+
+      const marker = window.scrollY + getAdminSectionMarkerOffset();
+      let nextSection: AdminSectionId = "overview";
+
+      for (const sectionId of adminSectionIds) {
+        const section = document.getElementById(sectionId);
+
+        if (section && section.offsetTop <= marker) {
+          nextSection = sectionId;
+        }
+      }
+
+      if (isAdminPageBottom()) {
+        nextSection = adminSectionIds[adminSectionIds.length - 1];
+      }
+
+      setActiveSection(nextSection);
+    }
+
+    updateActiveSection();
+    window.addEventListener("scroll", updateActiveSection, { passive: true });
+    window.addEventListener("resize", updateActiveSection);
+
+    return () => {
+      window.removeEventListener("scroll", updateActiveSection);
+      window.removeEventListener("resize", updateActiveSection);
+
+      if (navigationLockTimerRef.current !== null) {
+        window.clearTimeout(navigationLockTimerRef.current);
+      }
+    };
+  }, []);
+
   const visibleProducts = catalogProducts.filter(
     (product) => product.stockStatus !== "out_of_stock",
   ).length;
@@ -207,7 +265,11 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
         </a>
         <div className="admin-header-actions">
           <SiteSwitcher active="admin" />
-          <button className="secondary-button" type="button">
+          <button
+            className="secondary-button"
+            onClick={() => scrollToAdminSection("media")}
+            type="button"
+          >
             <Upload aria-hidden="true" />
             <span>Ảnh</span>
           </button>
@@ -224,19 +286,43 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
       <section className="admin-dashboard">
         <aside className="admin-sidebar" aria-label="Admin navigation">
-          <a className="admin-nav-item" data-active="true" href="#overview">
+          <a
+            aria-current={activeSection === "overview" ? "location" : undefined}
+            className="admin-nav-item"
+            data-active={activeSection === "overview"}
+            href="#overview"
+            onClick={(event) => handleSectionNavigation(event, "overview")}
+          >
             <ClipboardText aria-hidden="true" weight="duotone" />
             <span>Tổng quan</span>
           </a>
-          <a className="admin-nav-item" href="#products">
+          <a
+            aria-current={activeSection === "products" ? "location" : undefined}
+            className="admin-nav-item"
+            data-active={activeSection === "products"}
+            href="#products"
+            onClick={(event) => handleSectionNavigation(event, "products")}
+          >
             <Package aria-hidden="true" weight="duotone" />
             <span>Sản phẩm</span>
           </a>
-          <a className="admin-nav-item" href="#try-on">
+          <a
+            aria-current={activeSection === "try-on" ? "location" : undefined}
+            className="admin-nav-item"
+            data-active={activeSection === "try-on"}
+            href="#try-on"
+            onClick={(event) => handleSectionNavigation(event, "try-on")}
+          >
             <MagicWand aria-hidden="true" weight="duotone" />
             <span>Thử đồ</span>
           </a>
-          <a className="admin-nav-item" href="#media">
+          <a
+            aria-current={activeSection === "media" ? "location" : undefined}
+            className="admin-nav-item"
+            data-active={activeSection === "media"}
+            href="#media"
+            onClick={(event) => handleSectionNavigation(event, "media")}
+          >
             <ImageSquare aria-hidden="true" weight="duotone" />
             <span>Ảnh</span>
           </a>
@@ -394,6 +480,48 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     setCatalogError("");
   }
 
+  function handleSectionNavigation(
+    event: MouseEvent<HTMLAnchorElement>,
+    sectionId: AdminSectionId,
+  ) {
+    event.preventDefault();
+    scrollToAdminSection(sectionId);
+  }
+
+  function scrollToAdminSection(sectionId: AdminSectionId) {
+    const section = document.getElementById(sectionId);
+
+    if (!section) {
+      return;
+    }
+
+    navigationLockRef.current = sectionId;
+    setActiveSection(sectionId);
+    window.history.replaceState(null, "", `#${sectionId}`);
+
+    if (navigationLockTimerRef.current !== null) {
+      window.clearTimeout(navigationLockTimerRef.current);
+    }
+
+    navigationLockTimerRef.current = window.setTimeout(() => {
+      navigationLockRef.current = null;
+      navigationLockTimerRef.current = null;
+    }, 250);
+
+    const maxScroll =
+      document.documentElement.scrollHeight - window.innerHeight;
+    const targetScroll = Math.min(
+      maxScroll,
+      Math.max(0, section.offsetTop - getAdminNavigationOffset()),
+    );
+    const previousScrollBehavior =
+      document.documentElement.style.scrollBehavior;
+
+    document.documentElement.style.scrollBehavior = "auto";
+    window.scrollTo(0, targetScroll);
+    document.documentElement.style.scrollBehavior = previousScrollBehavior;
+  }
+
   function closeProductForm() {
     setIsProductFormOpen(false);
     setEditingProduct(null);
@@ -480,6 +608,29 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       );
     }
   }
+}
+
+function getInitialAdminSection(): AdminSectionId {
+  const sectionId = window.location.hash.slice(1);
+
+  return adminSectionIds.includes(sectionId as AdminSectionId)
+    ? (sectionId as AdminSectionId)
+    : "overview";
+}
+
+function getAdminNavigationOffset() {
+  return window.innerWidth <= 980 ? 76 : 96;
+}
+
+function getAdminSectionMarkerOffset() {
+  return window.innerWidth <= 980 ? 96 : 120;
+}
+
+function isAdminPageBottom() {
+  return (
+    window.innerHeight + window.scrollY >=
+    document.documentElement.scrollHeight - 4
+  );
 }
 
 function AdminLoginPage() {
