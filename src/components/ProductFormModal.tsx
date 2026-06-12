@@ -1,5 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
+import { ImagePlus, Plus, Star, Trash2, X } from "lucide-react";
 import type {
   Gender,
   Product,
@@ -11,9 +17,18 @@ type ProductFormModalProps = {
   product: Product | null;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (input: ProductInput) => Promise<void>;
+  onDeleteImage: (imageId: string) => Promise<Product>;
+  onSave: (input: ProductInput, imageFiles: File[]) => Promise<void>;
+  onSetPrimaryImage: (imageId: string) => Promise<Product>;
 };
 
+type PendingImage = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
+
+const maxImageCount = 6;
 const categoryOptions = ["Áo", "Quần", "Váy", "Bộ đồ", "Phụ kiện"];
 const genderOptions: Array<{ label: string; value: Gender }> = [
   { label: "Bé trai", value: "boy" },
@@ -30,25 +45,50 @@ function ProductFormModal({
   product,
   isSaving,
   onClose,
+  onDeleteImage,
   onSave,
+  onSetPrimaryImage,
 }: ProductFormModalProps) {
   const [form, setForm] = useState<ProductInput>(() => createInitialForm(product));
+  const [currentImages, setCurrentImages] = useState(product?.images || []);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [imageActionId, setImageActionId] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const pendingImagesRef = useRef<PendingImage[]>([]);
 
   useEffect(() => {
     setForm(createInitialForm(product));
+    setCurrentImages(product?.images || []);
+    setPendingImages((current) => {
+      revokePreviews(current);
+      return [];
+    });
     setSubmitError("");
   }, [product]);
+
+  useEffect(() => {
+    pendingImagesRef.current = pendingImages;
+  }, [pendingImages]);
+
+  useEffect(
+    () => () => {
+      revokePreviews(pendingImagesRef.current);
+    },
+    [],
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError("");
 
     try {
-      await onSave({
-        ...form,
-        variants: form.variants.filter((variant) => variant.sizeLabel.trim()),
-      });
+      await onSave(
+        {
+          ...form,
+          variants: form.variants.filter((variant) => variant.sizeLabel.trim()),
+        },
+        pendingImages.map((image) => image.file),
+      );
     } catch (error) {
       setSubmitError(
         error instanceof Error ? error.message : "Không thể lưu sản phẩm.",
@@ -221,6 +261,95 @@ function ProductFormModal({
             </label>
           </fieldset>
 
+          <section className="admin-image-editor">
+            <div className="admin-variant-heading">
+              <div>
+                <h3>Ảnh sản phẩm</h3>
+                <p>Tối đa 6 ảnh JPEG, PNG hoặc WebP; mỗi ảnh không quá 5 MB.</p>
+              </div>
+              <label
+                className={`secondary-button admin-image-upload${
+                  currentImages.length + pendingImages.length >= maxImageCount
+                    ? " is-disabled"
+                    : ""
+                }`}
+              >
+                <ImagePlus aria-hidden="true" />
+                <span>Chọn ảnh</span>
+                <input
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={
+                    currentImages.length + pendingImages.length >= maxImageCount
+                  }
+                  multiple
+                  onChange={handleImageSelection}
+                  type="file"
+                />
+              </label>
+            </div>
+
+            {currentImages.length + pendingImages.length > 0 ? (
+              <div className="admin-image-grid">
+                {currentImages.map((image) => (
+                  <article className="admin-image-item" key={image.id}>
+                    <img alt={image.altText} src={image.url} />
+                    <div className="admin-image-item-footer">
+                      {image.isPrimary ? (
+                        <span className="admin-primary-image-label">
+                          <Star aria-hidden="true" />
+                          Đại diện
+                        </span>
+                      ) : (
+                        <button
+                          className="admin-image-text-button"
+                          disabled={Boolean(imageActionId)}
+                          onClick={() => void handleSetPrimaryImage(image.id)}
+                          type="button"
+                        >
+                          <Star aria-hidden="true" />
+                          Đặt đại diện
+                        </button>
+                      )}
+                      <button
+                        aria-label="Xóa ảnh"
+                        className="admin-icon-button admin-image-delete"
+                        disabled={Boolean(imageActionId)}
+                        onClick={() => void handleDeleteImage(image.id)}
+                        type="button"
+                      >
+                        <Trash2 aria-hidden="true" />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {pendingImages.map((image) => (
+                  <article className="admin-image-item" key={image.id}>
+                    <img
+                      alt={`Ảnh chờ tải ${image.file.name}`}
+                      src={image.previewUrl}
+                    />
+                    <div className="admin-image-item-footer">
+                      <span className="admin-pending-image-label">Chờ tải lên</span>
+                      <button
+                        aria-label="Bỏ ảnh đã chọn"
+                        className="admin-icon-button admin-image-delete"
+                        onClick={() => removePendingImage(image.id)}
+                        type="button"
+                      >
+                        <X aria-hidden="true" />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="admin-image-empty">
+                <ImagePlus aria-hidden="true" />
+                <span>Chưa có ảnh sản phẩm.</span>
+              </div>
+            )}
+          </section>
+
           <section className="admin-variant-editor">
             <div className="admin-variant-heading">
               <div>
@@ -340,6 +469,91 @@ function ProductFormModal({
         variantIndex === index ? { ...variant, ...value } : variant,
       ),
     }));
+  }
+
+  function handleImageSelection(event: ChangeEvent<HTMLInputElement>) {
+    const availableSlots =
+      maxImageCount - currentImages.length - pendingImages.length;
+    const selectedFiles = Array.from(event.target.files || []).slice(
+      0,
+      availableSlots,
+    );
+    const validFiles = selectedFiles.filter(
+      (file) =>
+        ["image/jpeg", "image/png", "image/webp"].includes(file.type) &&
+        file.size > 0 &&
+        file.size <= 5 * 1024 * 1024,
+    );
+
+    if (validFiles.length !== selectedFiles.length) {
+      setSubmitError(
+        "Một số ảnh không hợp lệ. Chỉ nhận JPEG, PNG, WebP tối đa 5 MB.",
+      );
+    }
+
+    setPendingImages((current) => [
+      ...current,
+      ...validFiles.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      })),
+    ]);
+    event.target.value = "";
+  }
+
+  function removePendingImage(id: string) {
+    setPendingImages((current) => {
+      const removedImage = current.find((image) => image.id === id);
+
+      if (removedImage) {
+        URL.revokeObjectURL(removedImage.previewUrl);
+      }
+
+      return current.filter((image) => image.id !== id);
+    });
+  }
+
+  async function handleDeleteImage(imageId: string) {
+    if (!window.confirm("Xóa ảnh này khỏi sản phẩm?")) {
+      return;
+    }
+
+    setImageActionId(imageId);
+    setSubmitError("");
+
+    try {
+      const updatedProduct = await onDeleteImage(imageId);
+      setCurrentImages(updatedProduct.images);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Không thể xóa ảnh.",
+      );
+    } finally {
+      setImageActionId("");
+    }
+  }
+
+  async function handleSetPrimaryImage(imageId: string) {
+    setImageActionId(imageId);
+    setSubmitError("");
+
+    try {
+      const updatedProduct = await onSetPrimaryImage(imageId);
+      setCurrentImages(updatedProduct.images);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "Không thể chọn ảnh đại diện.",
+      );
+    } finally {
+      setImageActionId("");
+    }
+  }
+}
+
+function revokePreviews(images: PendingImage[]) {
+  for (const image of images) {
+    URL.revokeObjectURL(image.previewUrl);
   }
 }
 

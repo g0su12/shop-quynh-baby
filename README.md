@@ -51,6 +51,15 @@ The admin UI is available at `/admin`. Unauthenticated users are redirected to
 1. Create a D1 database named `quynh-baby-shop`.
 2. Replace `database_id` in `wrangler.toml`.
 3. Create R2 buckets named `product-images` and `try-on-images`.
+
+```bash
+npx wrangler r2 bucket create product-images
+npx wrangler r2 bucket create try-on-images
+```
+
+The buckets can remain private. Product images are served through the cached
+`/api/product-images/:id` Pages Function.
+
 4. Apply migrations:
 
 ```bash
@@ -69,6 +78,10 @@ The catalog now uses D1 through these Pages Functions:
 - `POST /api/admin/products`: create a product.
 - `PUT /api/admin/products/:id`: replace product details and variants.
 - `PATCH /api/admin/products/:id`: change public visibility.
+- `POST /api/admin/products/:id/images`: upload up to 6 product images.
+- `PATCH /api/admin/product-images/:id`: select the primary image.
+- `DELETE /api/admin/product-images/:id`: delete an image from D1 and R2.
+- `GET /api/product-images/:id`: serve a cached public product image from R2.
 
 Admin endpoints require the signed admin session cookie.
 
@@ -80,4 +93,5 @@ npm run cf:functions:build
 npm run cf:dev
 ```
 
-Product images still use the local placeholder. R2 upload is the next implementation phase.
+Product uploads accept JPEG, PNG, and WebP files up to 5 MB each. Products
+without an uploaded image continue to use the local catalog placeholder.

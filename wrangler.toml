@@ -5,7 +5,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "quynh-baby-shop"
-database_id = "replace-with-cloudflare-d1-database-id"
+database_id = "7822edac-5dad-451c-a57d-a9e9850fc9d4"
 
 [[r2_buckets]]
 binding = "PRODUCT_IMAGES"

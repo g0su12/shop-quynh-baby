@@ -48,6 +48,45 @@ export async function setProductVisibility(id: string, isVisible: boolean) {
   return response.product;
 }
 
+export async function uploadProductImages(id: string, files: File[]) {
+  const formData = new FormData();
+
+  for (const file of files) {
+    formData.append("images", file);
+  }
+
+  const response = await requestJson<ProductResponse>(
+    `/api/admin/products/${id}/images`,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+
+  return response.product;
+}
+
+export async function deleteProductImage(id: string) {
+  const response = await requestJson<ProductResponse>(
+    `/api/admin/product-images/${id}`,
+    { method: "DELETE" },
+  );
+
+  return response.product;
+}
+
+export async function setPrimaryProductImage(id: string) {
+  const response = await requestJson<ProductResponse>(
+    `/api/admin/product-images/${id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ isPrimary: true }),
+    },
+  );
+
+  return response.product;
+}
+
 async function requestProductList(url: string) {
   const response = await requestJson<ProductListResponse>(url);
 
@@ -60,7 +99,9 @@ async function requestJson<T>(url: string, init: RequestInit = {}) {
     credentials: "include",
     headers: {
       Accept: "application/json",
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(init.body && !(init.body instanceof FormData)
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...init.headers,
     },
   });

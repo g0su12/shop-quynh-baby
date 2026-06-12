@@ -55,8 +55,8 @@ Mục tiêu chính:
 - [x] Sửa thông tin sản phẩm.
 - [x] Ẩn/hiện sản phẩm.
 - [ ] Xóa sản phẩm hoặc đánh dấu archived.
-- [ ] Upload nhiều ảnh cho một sản phẩm.
-- [ ] Chọn ảnh đại diện.
+- [x] Upload nhiều ảnh cho một sản phẩm lên R2.
+- [x] Chọn và xóa ảnh đại diện.
 - [x] Quản lý size/màu/tình trạng còn hàng.
 - [x] Đánh dấu sản phẩm nổi bật.
 - [x] Xem danh sách yêu cầu thử đồ bằng mock data.
@@ -292,7 +292,7 @@ Flow an toàn hơn:
 - [x] Dựng admin shell route `/admin` bản mock.
 - [x] Dựng admin auth.
 - [x] Dựng admin CRUD sản phẩm với D1, chưa gồm xóa vĩnh viễn.
-- [ ] Dựng upload ảnh sản phẩm.
+- [x] Dựng upload ảnh sản phẩm với R2 private + Pages Functions.
 - [ ] Dựng product detail page.
 - [x] Dựng filter/search bản mock.
 - [x] Tối ưu mobile public bản đầu tiên.

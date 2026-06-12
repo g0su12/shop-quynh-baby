@@ -23,9 +23,12 @@ import SiteSwitcher from "../components/SiteSwitcher";
 import ProductFormModal from "../components/ProductFormModal";
 import {
   createProduct,
+  deleteProductImage,
   fetchAdminProducts,
+  setPrimaryProductImage,
   setProductVisibility,
   updateProduct,
+  uploadProductImages,
 } from "../api/products";
 import { products as mockProducts } from "../data/mockProducts";
 import type { Product, ProductInput, StockStatus } from "../types";
@@ -149,6 +152,8 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [pendingCreatedProduct, setPendingCreatedProduct] =
+    useState<Product | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -372,8 +377,10 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       {isProductFormOpen ? (
         <ProductFormModal
           isSaving={isSavingProduct}
-          onClose={() => setIsProductFormOpen(false)}
+          onClose={closeProductForm}
+          onDeleteImage={handleDeleteProductImage}
           onSave={handleProductSave}
+          onSetPrimaryImage={handleSetPrimaryProductImage}
           product={editingProduct}
         />
       ) : null}
@@ -382,30 +389,38 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
   function openProductForm(product: Product | null) {
     setEditingProduct(product);
+    setPendingCreatedProduct(null);
     setIsProductFormOpen(true);
     setCatalogError("");
   }
 
-  async function handleProductSave(input: ProductInput) {
+  function closeProductForm() {
+    setIsProductFormOpen(false);
+    setEditingProduct(null);
+    setPendingCreatedProduct(null);
+  }
+
+  async function handleProductSave(input: ProductInput, imageFiles: File[]) {
     setIsSavingProduct(true);
     setCatalogError("");
 
     try {
-      const savedProduct = editingProduct
-        ? await updateProduct(editingProduct.id, input)
+      const activeProduct = editingProduct || pendingCreatedProduct;
+      let savedProduct = activeProduct
+        ? await updateProduct(activeProduct.id, input)
         : await createProduct(input);
 
-      setCatalogProducts((current) => {
-        if (editingProduct) {
-          return current.map((product) =>
-            product.id === savedProduct.id ? savedProduct : product,
-          );
-        }
+      if (!activeProduct) {
+        setPendingCreatedProduct(savedProduct);
+      }
+      upsertCatalogProduct(savedProduct);
 
-        return [savedProduct, ...current];
-      });
-      setIsProductFormOpen(false);
-      setEditingProduct(null);
+      if (imageFiles.length > 0) {
+        savedProduct = await uploadProductImages(savedProduct.id, imageFiles);
+        upsertCatalogProduct(savedProduct);
+      }
+
+      closeProductForm();
     } catch (error) {
       setCatalogError(
         error instanceof Error ? error.message : "Không thể lưu sản phẩm.",
@@ -414,6 +429,34 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     } finally {
       setIsSavingProduct(false);
     }
+  }
+
+  async function handleDeleteProductImage(imageId: string) {
+    const updatedProduct = await deleteProductImage(imageId);
+    upsertCatalogProduct(updatedProduct);
+
+    return updatedProduct;
+  }
+
+  async function handleSetPrimaryProductImage(imageId: string) {
+    const updatedProduct = await setPrimaryProductImage(imageId);
+    upsertCatalogProduct(updatedProduct);
+
+    return updatedProduct;
+  }
+
+  function upsertCatalogProduct(updatedProduct: Product) {
+    setCatalogProducts((current) => {
+      const productExists = current.some(
+        (product) => product.id === updatedProduct.id,
+      );
+
+      return productExists
+        ? current.map((product) =>
+            product.id === updatedProduct.id ? updatedProduct : product,
+          )
+        : [updatedProduct, ...current];
+    });
   }
 
   async function handleVisibilityToggle(product: Product) {
