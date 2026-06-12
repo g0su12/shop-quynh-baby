@@ -14,6 +14,7 @@ import {
   LockKeyhole,
   Pencil,
   Plus,
+  Trash2,
   Upload,
 } from "lucide-react";
 import {
@@ -29,6 +30,7 @@ import SiteSwitcher from "../components/SiteSwitcher";
 import ProductFormModal from "../components/ProductFormModal";
 import {
   createProduct,
+  deleteProduct,
   deleteProductImage,
   fetchAdminProducts,
   setPrimaryProductImage,
@@ -164,6 +166,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [catalogError, setCatalogError] = useState("");
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState("");
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [pendingCreatedProduct, setPendingCreatedProduct] =
@@ -388,6 +391,8 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
               {catalogProducts.map((product) => (
                 <AdminProductRow
                   key={product.id}
+                  isDeleting={deletingProductId === product.id}
+                  onDelete={() => void handleProductDelete(product)}
                   onEdit={() => openProductForm(product)}
                   onToggleVisibility={() => void handleVisibilityToggle(product)}
                   product={product}
@@ -608,6 +613,32 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       );
     }
   }
+
+  async function handleProductDelete(product: Product) {
+    const confirmed = window.confirm(
+      `Xóa "${product.name}" khỏi catalog? Ảnh đã upload của sản phẩm này cũng sẽ bị xóa.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCatalogError("");
+    setDeletingProductId(product.id);
+
+    try {
+      await deleteProduct(product.id);
+      setCatalogProducts((current) =>
+        current.filter((item) => item.id !== product.id),
+      );
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error ? error.message : "Không thể xóa sản phẩm.",
+      );
+    } finally {
+      setDeletingProductId("");
+    }
+  }
 }
 
 function getInitialAdminSection(): AdminSectionId {
@@ -765,11 +796,15 @@ function AdminStat({ icon: Icon, label, value }: AdminStatProps) {
 
 type AdminProductRowProps = {
   product: Product;
+  isDeleting: boolean;
+  onDelete: () => void;
   onEdit: () => void;
   onToggleVisibility: () => void;
 };
 
 function AdminProductRow({
+  isDeleting,
+  onDelete,
   product,
   onEdit,
   onToggleVisibility,
@@ -805,6 +840,15 @@ function AdminProductRow({
         >
           <Archive aria-hidden="true" />
           <span>{product.isVisible ? "Ẩn" : "Hiện"}</span>
+        </button>
+        <button
+          className="secondary-button danger-button"
+          disabled={isDeleting}
+          onClick={onDelete}
+          type="button"
+        >
+          <Trash2 aria-hidden="true" />
+          <span>{isDeleting ? "Đang xóa" : "Xóa"}</span>
         </button>
       </div>
     </article>

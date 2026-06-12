@@ -38,6 +38,10 @@ type ImageRow = {
   is_primary: number;
 };
 
+type ProductImageKeyRow = {
+  object_key: string;
+};
+
 export type ProductPayload = {
   name: string;
   description: string;
@@ -203,6 +207,33 @@ export async function updateProductVisibility(
   }
 
   return getProduct(db, id);
+}
+
+export async function deleteProduct(db: D1Database, id: string) {
+  const existingProduct = await getProduct(db, id);
+
+  if (!existingProduct) {
+    return null;
+  }
+
+  const imageResult = await db
+    .prepare("SELECT object_key FROM product_images WHERE product_id = ?")
+    .bind(id)
+    .all<ProductImageKeyRow>();
+  const imageKeys = (imageResult.results || [])
+    .map((image) => image.object_key)
+    .filter(Boolean);
+
+  await db.batch([
+    db.prepare("DELETE FROM product_variants WHERE product_id = ?").bind(id),
+    db.prepare("DELETE FROM product_images WHERE product_id = ?").bind(id),
+    db.prepare("DELETE FROM products WHERE id = ?").bind(id),
+  ]);
+
+  return {
+    imageKeys,
+    product: existingProduct,
+  };
 }
 
 export function validateProductPayload(value: unknown): ProductPayload {

@@ -77,6 +77,15 @@ const genderValue: Record<string, Gender | "all"> = {
   Unisex: "unisex",
 };
 
+const stockFilterOptions = ["Tất cả", "Còn hàng", "Sắp hết", "Hết hàng"];
+
+const stockValue: Record<string, StockStatus | "all"> = {
+  "Tất cả": "all",
+  "Còn hàng": "in_stock",
+  "Sắp hết": "low_stock",
+  "Hết hàng": "out_of_stock",
+};
+
 function getProductUrl(product: Pick<Product, "slug">) {
   return `/products/${encodeURIComponent(product.slug)}`;
 }
@@ -113,6 +122,8 @@ function PublicCatalog() {
   const [category, setCategory] = useState("Tất cả");
   const [gender, setGender] = useState("Tất cả");
   const [age, setAge] = useState("Tất cả");
+  const [size, setSize] = useState("Tất cả");
+  const [stock, setStock] = useState("Tất cả");
 
   useEffect(() => {
     let ignore = false;
@@ -134,6 +145,16 @@ function PublicCatalog() {
 
   const featuredProducts = catalogProducts.filter((product) => product.isFeatured);
 
+  const sizeOptions = useMemo(() => {
+    const sizes = [
+      ...new Set(catalogProducts.flatMap((product) => product.sizes)),
+    ].sort((first, second) =>
+      first.localeCompare(second, "vi", { numeric: true }),
+    );
+
+    return ["Tất cả", ...sizes];
+  }, [catalogProducts]);
+
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
@@ -148,10 +169,21 @@ function PublicCatalog() {
       const selectedGender = genderValue[gender];
       const matchesGender = selectedGender === "all" || product.gender === selectedGender;
       const matchesAge = age === "Tất cả" || product.ageGroup === age;
+      const matchesSize = size === "Tất cả" || product.sizes.includes(size);
+      const selectedStock = stockValue[stock];
+      const matchesStock =
+        selectedStock === "all" || product.stockStatus === selectedStock;
 
-      return matchesSearch && matchesCategory && matchesGender && matchesAge;
+      return (
+        matchesSearch &&
+        matchesCategory &&
+        matchesGender &&
+        matchesAge &&
+        matchesSize &&
+        matchesStock
+      );
     });
-  }, [age, catalogProducts, category, gender, search]);
+  }, [age, catalogProducts, category, gender, search, size, stock]);
 
   return (
     <main>
@@ -271,6 +303,8 @@ function PublicCatalog() {
           <FilterGroup label="Danh mục" options={categoryOptions} value={category} onChange={setCategory} />
           <FilterGroup label="Giới tính" options={genderOptions} value={gender} onChange={setGender} />
           <FilterGroup label="Độ tuổi" options={ageOptions} value={age} onChange={setAge} />
+          <FilterGroup label="Size" options={sizeOptions} value={size} onChange={setSize} />
+          <FilterGroup label="Tình trạng" options={stockFilterOptions} value={stock} onChange={setStock} />
         </div>
 
         <div className="product-grid">

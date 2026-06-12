@@ -98,6 +98,7 @@ The catalog now uses D1 through these Worker routes:
 - `POST /api/admin/products`: create a product.
 - `PUT /api/admin/products/:id`: replace product details and variants.
 - `PATCH /api/admin/products/:id`: change public visibility.
+- `DELETE /api/admin/products/:id`: delete a product, its variants, and uploaded images.
 - `POST /api/admin/products/:id/images`: upload up to 6 product images.
 - `PATCH /api/admin/product-images/:id`: select the primary image.
 - `DELETE /api/admin/product-images/:id`: delete an image from D1 and R2.

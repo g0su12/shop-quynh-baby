@@ -67,6 +67,12 @@ export async function setProductVisibility(id: string, isVisible: boolean) {
   return response.product;
 }
 
+export async function deleteProduct(id: string) {
+  await requestJson<{ deletedProductId: string }>(`/api/admin/products/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export async function uploadProductImages(id: string, files: File[]) {
   const formData = new FormData();
 

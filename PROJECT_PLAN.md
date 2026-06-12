@@ -31,9 +31,9 @@ Mục tiêu chính:
 - [x] Bộ lọc theo:
   - [x] Bé trai / bé gái / unisex.
   - [x] Danh mục: áo, quần, váy, bộ đồ, phụ kiện.
-  - [ ] Size.
+  - [x] Size.
   - [x] Độ tuổi.
-  - [ ] Tình trạng còn hàng.
+  - [x] Tình trạng còn hàng.
 - [x] Tìm kiếm theo tên sản phẩm, size, danh mục.
 - [x] Hiển thị ảnh chính và ảnh phụ.
 - [x] Không hiển thị giá ở public.
@@ -54,7 +54,7 @@ Mục tiêu chính:
 - [x] Tạo sản phẩm mới.
 - [x] Sửa thông tin sản phẩm.
 - [x] Ẩn/hiện sản phẩm.
-- [ ] Xóa sản phẩm hoặc đánh dấu archived.
+- [x] Xóa sản phẩm hoặc đánh dấu archived.
 - [x] Upload nhiều ảnh cho một sản phẩm lên R2.
 - [x] Chọn và xóa ảnh đại diện.
 - [x] Tự resize/nén ảnh lớn hơn 5 MB trên trình duyệt trước khi upload.

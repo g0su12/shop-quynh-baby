@@ -995,6 +995,19 @@ h3 {
   opacity: 0.72;
 }
 
+.secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.danger-button {
+  color: #a73636;
+}
+
+.danger-button:hover {
+  border-color: rgb(167 54 54 / 36%);
+}
+
 .admin-dev-link {
   background: transparent;
   border: 0;
