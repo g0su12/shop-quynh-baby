@@ -6,10 +6,18 @@ import {
 
 export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
   if (!context.env.ADMIN_PASSWORD_HASH || !context.env.ADMIN_SESSION_SECRET) {
+    const hostname = new URL(context.request.url).hostname;
+    const isLocal =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]";
+
     return Response.json(
       {
         ok: false,
-        message: "Admin auth is not configured.",
+        message: isLocal
+          ? "Admin local chưa được cấu hình. Chạy `npm run admin:setup:local`, sau đó khởi động lại `npm run cf:dev`."
+          : "Admin auth is not configured.",
       },
       { status: 503 },
     );

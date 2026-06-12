@@ -24,8 +24,12 @@ Copy `.env.example` to `.env.local` and adjust values when needed.
 bindings, and admin login cookies, use:
 
 ```bash
+npm run admin:setup:local
 npm run cf:dev
 ```
+
+The setup command asks for a local admin password and creates the ignored
+`.dev.vars` file. Restart `npm run cf:dev` after changing `.dev.vars`.
 
 ## Admin Login
 
@@ -42,6 +46,9 @@ Set these Cloudflare Worker secrets:
 
 - `ADMIN_PASSWORD_HASH`: the generated `pbkdf2_sha256$...` value.
 - `ADMIN_SESSION_SECRET`: a long random secret used to sign admin sessions.
+
+Cloudflare dashboard secrets are not available on localhost. Wrangler loads
+local secrets from `.dev.vars`.
 
 The admin UI is available at `/admin`. Unauthenticated users are redirected to
 `/admin/login` by the Worker middleware.
