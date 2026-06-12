@@ -12,6 +12,14 @@ export function getAdminCookieName() {
 }
 
 export async function verifyAdminPassword(password: string, storedHash: string) {
+  try {
+    return await verifyPbkdf2Password(password, storedHash);
+  } catch {
+    return false;
+  }
+}
+
+async function verifyPbkdf2Password(password: string, storedHash: string) {
   const [algorithm, iterationsText, saltText, hashText] = storedHash.split("$");
 
   if (algorithm !== "pbkdf2_sha256") {

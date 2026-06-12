@@ -17,7 +17,7 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
         ok: false,
         message: isLocal
           ? "Admin local chưa được cấu hình. Chạy `npm run admin:setup:local`, sau đó khởi động lại `npm run cf:dev`."
-          : "Admin auth is not configured.",
+          : "Admin auth chưa được cấu hình. Kiểm tra ADMIN_PASSWORD_HASH và ADMIN_SESSION_SECRET trong Worker secrets.",
       },
       { status: 503 },
     );
@@ -31,7 +31,7 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
     return Response.json(
       {
         ok: false,
-        message: "Invalid login request.",
+        message: "Dữ liệu đăng nhập không hợp lệ.",
       },
       { status: 400 },
     );
@@ -41,7 +41,7 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
     return Response.json(
       {
         ok: false,
-        message: "Password is required.",
+        message: "Vui lòng nhập mật khẩu admin.",
       },
       { status: 400 },
     );
@@ -56,7 +56,7 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
     return Response.json(
       {
         ok: false,
-        message: "Invalid password.",
+        message: "Mật khẩu admin không đúng hoặc ADMIN_PASSWORD_HASH đang cấu hình sai.",
       },
       { status: 401 },
     );
