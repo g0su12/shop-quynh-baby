@@ -144,13 +144,13 @@ Ghi chú:
 
 Phù hợp với mục tiêu chi phí thấp, traffic nhỏ và catalog website cache-heavy.
 
-- Frontend: Cloudflare Pages.
+- Frontend: Cloudflare Workers Static Assets.
 - Frontend framework: React + Vite.
-- Backend API: Cloudflare Pages Functions hoặc Workers.
+- Backend API: Cloudflare Worker, build từ file-based `functions/` routes.
 - Database: Cloudflare D1.
 - Storage ảnh: Cloudflare R2.
 - Captcha/chống spam: Cloudflare Turnstile.
-- Auth admin: password/session server-side trong Pages Functions, hoặc Cloudflare Access nếu muốn khóa admin đơn giản hơn.
+- Auth admin: password/session server-side trong Worker, hoặc Cloudflare Access nếu muốn khóa admin đơn giản hơn.
 - Không có flow đăng ký tài khoản vì cửa hàng chỉ có một người quản lý.
 
 Ưu điểm:
@@ -177,8 +177,8 @@ Chỉ cân nhắc lại nếu cần phát triển admin/auth nhanh hơn hoặc C
 
 - [ ] Tạo tài khoản Cloudflare.
 - [ ] Mua domain hoặc transfer domain về Cloudflare nếu đã có domain.
-- [ ] Tạo project Cloudflare Pages.
-- [ ] Kết nối Cloudflare Pages với GitHub repository.
+- [x] Tạo project Cloudflare Worker.
+- [x] Kết nối Cloudflare Workers Builds với GitHub repository.
 - [ ] Cấu hình custom domain cho website.
 - [ ] Bật HTTPS mặc định.
 - [ ] Tạo D1 database cho catalog, ví dụ `quynh-baby-shop`.
@@ -186,7 +186,7 @@ Chỉ cân nhắc lại nếu cần phát triển admin/auth nhanh hơn hoặc C
 - [ ] Tạo R2 bucket riêng cho ảnh thử đồ nếu bật phase AI, ví dụ `try-on-images`.
 - [ ] Tạo Turnstile site key nếu sau này dùng form upload/AI.
 - [ ] Tạo `ADMIN_PASSWORD_HASH` bằng `npm run admin:hash -- "mật khẩu mạnh"`.
-- [ ] Tạo `ADMIN_SESSION_SECRET` là một chuỗi random dài và lưu trong Cloudflare Pages env vars.
+- [x] Tạo `ADMIN_SESSION_SECRET` là một chuỗi random dài và lưu trong Cloudflare Worker secrets.
 - [ ] Gửi cho dev các thông tin cần thiết:
   - [ ] Cloudflare account email.
   - [ ] Domain muốn dùng.
@@ -199,7 +199,7 @@ Chỉ cân nhắc lại nếu cần phát triển admin/auth nhanh hơn hoặc C
 ### GitHub
 
 - [ ] Tạo GitHub repository nếu chưa có remote.
-- [ ] Cấp quyền cho Cloudflare Pages đọc repository.
+- [x] Cấp quyền cho Cloudflare Workers Builds đọc repository.
 - [ ] Thống nhất branch deploy production, ví dụ `main`.
 
 ### Thông tin cửa hàng
@@ -233,7 +233,7 @@ Ghi chú:
 
 - Biến bắt đầu bằng `VITE_` có thể xuất hiện ở frontend.
 - Secret key không được commit vào Git.
-- Secret cho admin/session/Turnstile chỉ dùng server-side trong Pages Functions hoặc Workers.
+- Secret cho admin/session/Turnstile chỉ dùng server-side trong Worker.
 
 ## 8. AI ghép ảnh thử đồ - phase sau MVP
 
@@ -285,7 +285,7 @@ Flow an toàn hơn:
 ## 10. Thứ tự thực hiện đề xuất
 
 - [ ] Review lại plan này.
-- [x] Chốt stack MVP: Cloudflare Pages + Pages Functions/Workers + D1 + R2 + Turnstile.
+- [x] Chốt stack MVP: Cloudflare Workers Static Assets + Functions routes + D1 + R2 + Turnstile.
 - [x] Chốt tên shop, thông tin liên hệ, màu sắc, style UI ban đầu.
 - [x] Khởi tạo frontend project.
 - [x] Dựng layout public catalog bản mock.
@@ -293,12 +293,12 @@ Flow an toàn hơn:
 - [x] Dựng admin shell route `/admin` bản mock.
 - [x] Dựng admin auth.
 - [x] Dựng admin CRUD sản phẩm với D1, chưa gồm xóa vĩnh viễn.
-- [x] Dựng upload ảnh sản phẩm với R2 private + Pages Functions.
+- [x] Dựng upload ảnh sản phẩm với R2 private + Worker routes.
 - [ ] Dựng product detail page.
 - [x] Dựng filter/search bản mock.
 - [x] Tối ưu mobile public bản đầu tiên.
 - [x] Cấu hình SEO/Open Graph ban đầu.
-- [ ] Deploy thử lên Cloudflare Pages.
+- [ ] Deploy thử thành công lên Cloudflare Worker.
 - [ ] Nhập 10-20 sản phẩm mẫu.
 - [ ] Review với mẹ bạn.
 - [ ] Chỉnh UI/UX theo feedback thực tế.

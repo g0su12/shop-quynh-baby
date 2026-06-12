@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run build:web && npm run cf:functions:build",
+    "build:web": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "cf:dev": "npm run build && wrangler pages dev dist",
+    "cf:dev": "npm run build && wrangler dev",
     "cf:functions:build": "wrangler pages functions build functions --outdir .wrangler/functions-build",
+    "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply quynh-baby-shop --local",
     "db:migrate:remote": "wrangler d1 migrations apply quynh-baby-shop --remote",
     "admin:hash": "node scripts/hash-admin-password.mjs"
