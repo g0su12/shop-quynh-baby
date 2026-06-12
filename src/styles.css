@@ -425,6 +425,7 @@ h3 {
 .filter-group {
   border: 0;
   margin: 0;
+  min-width: 0;
   padding: 0;
 }
 
@@ -442,14 +443,20 @@ h3 {
 }
 
 .filter-chip {
+  align-items: center;
   background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink);
   cursor: pointer;
+  display: inline-flex;
   font-weight: 700;
+  justify-content: center;
+  line-height: 1.15;
   min-height: 38px;
+  min-width: 0;
   padding: 0 13px;
+  text-align: center;
 }
 
 .filter-chip[data-active="true"] {
@@ -1142,23 +1149,37 @@ h3 {
 
 .admin-form-options {
   border: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
   padding: 0;
 }
 
 .admin-form-options label {
   align-items: center;
-  display: inline-flex;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
   font-weight: 800;
   gap: 8px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0 12px;
 }
 
 .admin-form-options input {
+  accent-color: var(--coral);
+  flex: 0 0 18px;
   height: 18px;
+  margin: 0;
   width: 18px;
+}
+
+.admin-form-options span {
+  line-height: 1.25;
+  min-width: 0;
 }
 
 .admin-image-editor,
@@ -1416,6 +1437,12 @@ h3 {
 
   .site-switcher {
     align-self: flex-start;
+    width: 100%;
+  }
+
+  .site-switcher-item {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .header-actions {
@@ -1488,6 +1515,22 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .filters {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .chip-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filter-chip {
+    min-height: 40px;
+    padding: 0 8px;
+    width: 100%;
+  }
+
   .admin-header {
     align-items: center;
     flex-direction: row;
@@ -1507,6 +1550,7 @@ h3 {
 
   .admin-header-actions .site-switcher {
     flex: 0 0 auto;
+    width: auto;
   }
 
   .admin-header-actions .primary-button,
@@ -1604,6 +1648,10 @@ h3 {
 
   .admin-form-grid,
   .admin-variant-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-form-options {
     grid-template-columns: 1fr;
   }
 

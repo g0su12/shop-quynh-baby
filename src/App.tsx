@@ -261,11 +261,12 @@ type FilterGroupProps = {
 
 function FilterGroup({ label, options, value, onChange }: FilterGroupProps) {
   return (
-    <fieldset className="filter-group">
+    <fieldset className="filter-group" data-count={options.length}>
       <legend>{label}</legend>
       <div className="chip-row">
         {options.map((option) => (
           <button
+            aria-pressed={option === value}
             className="filter-chip"
             data-active={option === value}
             key={option}
