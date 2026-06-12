@@ -93,6 +93,7 @@ The build command creates both `dist` and the generated Worker entry point at
 The catalog now uses D1 through these Worker routes:
 
 - `GET /api/products`: public visible products.
+- `GET /api/products/:slug`: public product detail by slug.
 - `GET /api/admin/products`: complete admin catalog.
 - `POST /api/admin/products`: create a product.
 - `PUT /api/admin/products/:id`: replace product details and variants.

@@ -27,7 +27,7 @@ Mục tiêu chính:
 ### Public website
 
 - [x] Trang danh sách sản phẩm đọc từ D1, fallback mock khi API local chưa chạy.
-- [ ] Trang chi tiết sản phẩm.
+- [x] Trang chi tiết sản phẩm.
 - [x] Bộ lọc theo:
   - [x] Bé trai / bé gái / unisex.
   - [x] Danh mục: áo, quần, váy, bộ đồ, phụ kiện.
@@ -35,7 +35,7 @@ Mục tiêu chính:
   - [x] Độ tuổi.
   - [ ] Tình trạng còn hàng.
 - [x] Tìm kiếm theo tên sản phẩm, size, danh mục.
-- [ ] Hiển thị ảnh chính và ảnh phụ.
+- [x] Hiển thị ảnh chính và ảnh phụ.
 - [x] Không hiển thị giá ở public.
 - [x] Hiển thị size/màu còn hàng từ product variants.
 - [x] Thêm icon/category tile sinh động bằng Phosphor duotone.
@@ -294,7 +294,7 @@ Flow an toàn hơn:
 - [x] Dựng admin auth.
 - [x] Dựng admin CRUD sản phẩm với D1, chưa gồm xóa vĩnh viễn.
 - [x] Dựng upload ảnh sản phẩm với R2 private + Worker routes.
-- [ ] Dựng product detail page.
+- [x] Dựng product detail page.
 - [x] Dựng filter/search bản mock.
 - [x] Tối ưu mobile public bản đầu tiên.
 - [x] Cấu hình SEO/Open Graph ban đầu.

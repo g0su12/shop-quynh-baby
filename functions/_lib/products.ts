@@ -96,6 +96,25 @@ export async function getProduct(db: D1Database, id: string) {
   )[0];
 }
 
+export async function getProductBySlug(
+  db: D1Database,
+  slug: string,
+  includeHidden = false,
+) {
+  const productQuery = includeHidden
+    ? "SELECT * FROM products WHERE slug = ? LIMIT 1"
+    : "SELECT * FROM products WHERE slug = ? AND is_visible = 1 LIMIT 1";
+  const productResult = await db.prepare(productQuery).bind(slug).all();
+  const productRows = (productResult.results || []) as ProductRow[];
+  const product = productRows[0];
+
+  if (!product) {
+    return null;
+  }
+
+  return getProduct(db, product.id);
+}
+
 export async function createProduct(db: D1Database, payload: ProductPayload) {
   const id = crypto.randomUUID();
   const slug = `${slugify(payload.name)}-${id.slice(0, 8)}`;

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
+  ChevronRight,
   MapPin,
   MessageCircle,
   Phone,
   Search,
-  Shirt,
 } from "lucide-react";
 import {
   Baby,
@@ -16,7 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import SiteSwitcher from "./components/SiteSwitcher";
 import AdminPage from "./pages/AdminPage";
-import { fetchPublicProducts } from "./api/products";
+import { fetchPublicProductBySlug, fetchPublicProducts } from "./api/products";
 import {
   ageOptions,
   categoryOptions,
@@ -75,6 +76,36 @@ const genderValue: Record<string, Gender | "all"> = {
   "Bé gái": "girl",
   Unisex: "unisex",
 };
+
+function getProductUrl(product: Pick<Product, "slug">) {
+  return `/products/${encodeURIComponent(product.slug)}`;
+}
+
+function getProductImages(product: Product) {
+  const images = product.images
+    .filter((image) => image.url)
+    .sort((first, second) => {
+      if (first.isPrimary !== second.isPrimary) {
+        return first.isPrimary ? -1 : 1;
+      }
+
+      return first.sortOrder - second.sortOrder;
+    });
+
+  if (images.length > 0) {
+    return images;
+  }
+
+  return [
+    {
+      id: `${product.id}-fallback`,
+      url: product.imageUrl,
+      altText: product.name,
+      isPrimary: true,
+      sortOrder: 0,
+    },
+  ];
+}
 
 function PublicCatalog() {
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(mockProducts);
@@ -287,17 +318,21 @@ type ProductCardProps = {
 };
 
 function ProductCard({ product, compact = false }: ProductCardProps) {
+  const detailUrl = getProductUrl(product);
+
   return (
     <article className="product-card" data-compact={compact}>
-      <div className="product-media">
+      <a className="product-media product-media-link" href={detailUrl}>
         <img src={product.imageUrl} alt={product.name} />
         <span className="stock-badge" data-status={product.stockStatus}>
           {stockLabel[product.stockStatus]}
         </span>
-      </div>
+      </a>
       <div className="product-content">
         <div className="product-title-row">
-          <h3>{product.name}</h3>
+          <h3>
+            <a href={detailUrl}>{product.name}</a>
+          </h3>
           {product.isFeatured ? <Sparkle aria-label="Sản phẩm nổi bật" weight="duotone" /> : null}
         </div>
         <p>{product.description}</p>
@@ -325,23 +360,333 @@ function ProductCard({ product, compact = false }: ProductCardProps) {
           ))}
         </div>
         <div className="card-actions">
-          <a className="primary-button" href={zaloUrl} target="_blank" rel="noreferrer">
+          <a className="primary-button" href={detailUrl}>
+            <Search aria-hidden="true" />
+            <span>Chi tiết</span>
+          </a>
+          <a className="secondary-button" href={zaloUrl} target="_blank" rel="noreferrer">
             <MessageCircle aria-hidden="true" />
             <span>Liên hệ</span>
           </a>
-          <button className="secondary-button" type="button">
-            <Shirt aria-hidden="true" />
-            <span>Thử cho bé</span>
-          </button>
         </div>
       </div>
     </article>
   );
 }
 
+type ProductDetailPageProps = {
+  slug: string;
+};
+
+function ProductDetailPage({ slug }: ProductDetailPageProps) {
+  const [product, setProduct] = useState<Product | null>();
+  const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
+  const [selectedImageId, setSelectedImageId] = useState("");
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadProductDetail() {
+      setProduct(undefined);
+      setRelatedProducts([]);
+
+      const [nextProduct, visibleProducts] = await Promise.all([
+        fetchPublicProductBySlug(slug),
+        fetchPublicProducts(),
+      ]);
+
+      if (ignore) {
+        return;
+      }
+
+      setProduct(nextProduct);
+
+      if (nextProduct) {
+        setRelatedProducts(
+          visibleProducts
+            .filter(
+              (item) =>
+                item.id !== nextProduct.id &&
+                (item.category === nextProduct.category ||
+                  item.gender === nextProduct.gender),
+            )
+            .slice(0, 3),
+        );
+      }
+    }
+
+    void loadProductDetail();
+
+    return () => {
+      ignore = true;
+    };
+  }, [slug]);
+
+  useEffect(() => {
+    if (!product) {
+      return;
+    }
+
+    const previousTitle = document.title;
+    const descriptionMeta = document.querySelector<HTMLMetaElement>(
+      'meta[name="description"]',
+    );
+    const previousDescription = descriptionMeta?.content;
+
+    document.title = `${product.name} | ${shopName}`;
+    descriptionMeta?.setAttribute(
+      "content",
+      `${product.name} - ${product.category}, ${product.ageGroup}, còn size ${product.sizes.join(", ")}.`,
+    );
+
+    return () => {
+      document.title = previousTitle;
+
+      if (descriptionMeta && previousDescription) {
+        descriptionMeta.setAttribute("content", previousDescription);
+      }
+    };
+  }, [product]);
+
+  const images = useMemo(() => (product ? getProductImages(product) : []), [product]);
+  const selectedImage = images.find((image) => image.id === selectedImageId) || images[0];
+
+  useEffect(() => {
+    if (images.length === 0) {
+      setSelectedImageId("");
+      return;
+    }
+
+    setSelectedImageId((current) =>
+      images.some((image) => image.id === current) ? current : images[0].id,
+    );
+  }, [images]);
+
+  return (
+    <main>
+      <header className="site-header" aria-label="Điều hướng chính">
+        <a className="brand" href="/">
+          <Baby aria-hidden="true" weight="duotone" />
+          <span>{shopName}</span>
+        </a>
+        <div className="site-header-tools">
+          <SiteSwitcher active="public" />
+          <nav className="header-actions" aria-label="Liên hệ nhanh">
+            <a className="icon-link" href={zaloUrl} target="_blank" rel="noreferrer">
+              <MessageCircle aria-hidden="true" />
+              <span>Zalo</span>
+            </a>
+            <a className="icon-link" href={`tel:${shopPhone}`}>
+              <Phone aria-hidden="true" />
+              <span>Gọi</span>
+            </a>
+          </nav>
+        </div>
+      </header>
+
+      {product === undefined ? <ProductDetailLoading /> : null}
+      {product === null ? <ProductDetailNotFound /> : null}
+
+      {product && selectedImage ? (
+        <>
+          <section className="product-detail-page">
+            <nav className="detail-breadcrumb" aria-label="Đường dẫn">
+              <a href="/">Trang chủ</a>
+              <ChevronRight aria-hidden="true" />
+              <a href="/#catalog">Catalog</a>
+              <ChevronRight aria-hidden="true" />
+              <span>{product.name}</span>
+            </nav>
+
+            <div className="product-detail-layout">
+              <div className="detail-gallery" aria-label={`Ảnh ${product.name}`}>
+                <div className="detail-main-image">
+                  <img src={selectedImage.url} alt={selectedImage.altText || product.name} />
+                  <span className="stock-badge" data-status={product.stockStatus}>
+                    {stockLabel[product.stockStatus]}
+                  </span>
+                </div>
+
+                <div className="detail-thumbnails" aria-label="Chọn ảnh sản phẩm">
+                  {images.map((image) => (
+                    <button
+                      aria-label={`Xem ảnh ${image.altText || product.name}`}
+                      aria-pressed={image.id === selectedImage.id}
+                      data-active={image.id === selectedImage.id}
+                      key={image.id}
+                      onClick={() => setSelectedImageId(image.id)}
+                      type="button"
+                    >
+                      <img src={image.url} alt="" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="detail-summary">
+                <a className="text-link detail-back-link" href="/#catalog">
+                  <ArrowLeft aria-hidden="true" />
+                  <span>Về catalog</span>
+                </a>
+
+                <div>
+                  <p className="eyebrow">{product.category}</p>
+                  <h1>{product.name}</h1>
+                </div>
+
+                <p className="detail-description">
+                  {product.description || "Mẫu đang có tại shop, vui lòng liên hệ để được tư vấn size phù hợp cho bé."}
+                </p>
+
+                <div className="detail-badges" aria-label="Thông tin nhanh">
+                  <span>{genderLabel[product.gender]}</span>
+                  {product.ageGroup ? <span>{product.ageGroup}</span> : null}
+                  {product.weightRange ? <span>{product.weightRange}</span> : null}
+                  {product.isFeatured ? <span>Mẫu nổi bật</span> : null}
+                </div>
+
+                <dl className="detail-info-grid">
+                  <div>
+                    <dt>Danh mục</dt>
+                    <dd>{product.category}</dd>
+                  </div>
+                  <div>
+                    <dt>Giới tính</dt>
+                    <dd>{genderLabel[product.gender]}</dd>
+                  </div>
+                  <div>
+                    <dt>Độ tuổi</dt>
+                    <dd>{product.ageGroup || "Liên hệ shop"}</dd>
+                  </div>
+                  <div>
+                    <dt>Cân nặng</dt>
+                    <dd>{product.weightRange || "Liên hệ shop"}</dd>
+                  </div>
+                </dl>
+
+                <div className="detail-section">
+                  <h2>Size còn hàng</h2>
+                  <div className="size-row">
+                    {product.sizes.length > 0 ? (
+                      product.sizes.map((size) => <span key={size}>{size}</span>)
+                    ) : (
+                      <span>Liên hệ shop</span>
+                    )}
+                  </div>
+                </div>
+
+                {product.colors.length > 0 ? (
+                  <div className="detail-section">
+                    <h2>Màu hiện có</h2>
+                    <div className="color-row">
+                      {product.colors.map((color) => (
+                        <span key={color}>{color}</span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="detail-actions">
+                  <a className="primary-button" href={zaloUrl} target="_blank" rel="noreferrer">
+                    <MessageCircle aria-hidden="true" />
+                    <span>Hỏi mẫu này</span>
+                  </a>
+                  <a className="secondary-button" href={facebookUrl} target="_blank" rel="noreferrer">
+                    <MessageCircle aria-hidden="true" />
+                    <span>Facebook</span>
+                  </a>
+                  <a className="secondary-button" href={`tel:${shopPhone}`}>
+                    <Phone aria-hidden="true" />
+                    <span>Gọi shop</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="detail-panel-section">
+            <div className="detail-panel">
+              <div className="detail-panel-heading">
+                <div>
+                  <p className="eyebrow">Tình trạng</p>
+                  <h2>Size và màu của mẫu</h2>
+                </div>
+                <span className="result-count">{product.variants.length} lựa chọn</span>
+              </div>
+
+              <div className="variant-availability-list">
+                {product.variants.map((variant) => (
+                  <div className="variant-availability-item" key={variant.id}>
+                    <div>
+                      <strong>Size {variant.sizeLabel}</strong>
+                      <small>{variant.colorLabel || "Màu theo ảnh"}</small>
+                    </div>
+                    <span data-status={variant.stockStatus}>
+                      {stockLabel[variant.stockStatus]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {relatedProducts.length > 0 ? (
+            <section className="section-band detail-related">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Gợi ý</p>
+                  <h2>Mẫu gần giống</h2>
+                </div>
+                <a className="text-link" href="/#catalog">
+                  Xem catalog
+                </a>
+              </div>
+              <div className="featured-grid">
+                {relatedProducts.map((item) => (
+                  <ProductCard compact key={item.id} product={item} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </>
+      ) : null}
+    </main>
+  );
+}
+
+function ProductDetailLoading() {
+  return (
+    <section className="detail-state">
+      <p className="eyebrow">Catalog</p>
+      <h1>Đang tải mẫu</h1>
+      <p>Đang lấy thông tin sản phẩm từ showroom.</p>
+    </section>
+  );
+}
+
+function ProductDetailNotFound() {
+  return (
+    <section className="detail-state">
+      <a className="text-link detail-back-link" href="/#catalog">
+        <ArrowLeft aria-hidden="true" />
+        <span>Về catalog</span>
+      </a>
+      <p className="eyebrow">Catalog</p>
+      <h1>Không tìm thấy mẫu này</h1>
+      <p>Mẫu có thể đã được ẩn hoặc đường dẫn không còn đúng.</p>
+    </section>
+  );
+}
+
 function App() {
   if (window.location.pathname.startsWith("/admin")) {
     return <AdminPage />;
+  }
+
+  const productMatch = window.location.pathname.match(/^\/products\/([^/]+)\/?$/);
+
+  if (productMatch) {
+    return <ProductDetailPage slug={decodeURIComponent(productMatch[1])} />;
   }
 
   return <PublicCatalog />;

@@ -17,6 +17,25 @@ export async function fetchPublicProducts() {
   }
 }
 
+export async function fetchPublicProductBySlug(slug: string) {
+  try {
+    const response = await requestJson<ProductResponse>(
+      `/api/products/${encodeURIComponent(slug)}`,
+    );
+
+    return response.product;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+
+    return (
+      mockProducts.find((product) => product.isVisible && product.slug === slug) ||
+      null
+    );
+  }
+}
+
 export async function fetchAdminProducts() {
   return requestProductList("/api/admin/products");
 }
@@ -114,8 +133,20 @@ async function requestJson<T>(url: string, init: RequestInit = {}) {
   const payload = (await response.json()) as T & { message?: string };
 
   if (!response.ok) {
-    throw new Error(payload.message || "Không thể xử lý dữ liệu sản phẩm.");
+    throw new ApiError(
+      payload.message || "Không thể xử lý dữ liệu sản phẩm.",
+      response.status,
+    );
   }
 
   return payload;
+}
+
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
 }
