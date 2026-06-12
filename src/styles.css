@@ -1254,6 +1254,8 @@ h3 {
 
 .admin-pending-image-label {
   color: #366b52;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .admin-image-delete {

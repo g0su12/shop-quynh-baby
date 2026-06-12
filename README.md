@@ -93,5 +93,8 @@ npm run cf:functions:build
 npm run cf:dev
 ```
 
-Product uploads accept JPEG, PNG, and WebP files up to 5 MB each. Products
-without an uploaded image continue to use the local catalog placeholder.
+Product uploads accept JPEG, PNG, and WebP sources up to 30 MB. The admin UI
+automatically resizes sources over 5 MB to a maximum 1800 px edge, converts
+them to WebP, and targets 4.5 MB before upload. The API keeps a strict 5 MB
+limit as a final safeguard. Products without an uploaded image continue to use
+the local catalog placeholder.

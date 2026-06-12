@@ -57,6 +57,7 @@ Mục tiêu chính:
 - [ ] Xóa sản phẩm hoặc đánh dấu archived.
 - [x] Upload nhiều ảnh cho một sản phẩm lên R2.
 - [x] Chọn và xóa ảnh đại diện.
+- [x] Tự resize/nén ảnh lớn hơn 5 MB trên trình duyệt trước khi upload.
 - [x] Quản lý size/màu/tình trạng còn hàng.
 - [x] Đánh dấu sản phẩm nổi bật.
 - [x] Xem danh sách yêu cầu thử đồ bằng mock data.

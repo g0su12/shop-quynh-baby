@@ -12,6 +12,11 @@ import type {
   ProductInput,
   StockStatus,
 } from "../types";
+import {
+  formatFileSize,
+  MAX_SOURCE_IMAGE_BYTES,
+  optimizeImageForUpload,
+} from "../utils/optimizeImage";
 
 type ProductFormModalProps = {
   product: Product | null;
@@ -26,6 +31,8 @@ type PendingImage = {
   id: string;
   file: File;
   previewUrl: string;
+  originalSize: number;
+  wasOptimized: boolean;
 };
 
 const maxImageCount = 6;
@@ -53,6 +60,7 @@ function ProductFormModal({
   const [currentImages, setCurrentImages] = useState(product?.images || []);
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [imageActionId, setImageActionId] = useState("");
+  const [isOptimizingImages, setIsOptimizingImages] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const pendingImagesRef = useRef<PendingImage[]>([]);
 
@@ -80,6 +88,11 @@ function ProductFormModal({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError("");
+
+    if (isOptimizingImages) {
+      setSubmitError("Hãy đợi tối ưu ảnh hoàn tất.");
+      return;
+    }
 
     try {
       await onSave(
@@ -114,6 +127,7 @@ function ProductFormModal({
           <button
             aria-label="Đóng form"
             className="admin-icon-button"
+            disabled={isSaving || isOptimizingImages}
             onClick={onClose}
             type="button"
           >
@@ -265,20 +279,24 @@ function ProductFormModal({
             <div className="admin-variant-heading">
               <div>
                 <h3>Ảnh sản phẩm</h3>
-                <p>Tối đa 6 ảnh JPEG, PNG hoặc WebP; mỗi ảnh không quá 5 MB.</p>
+                <p>
+                  Ảnh trên 5 MB sẽ tự giảm kích thước và chuyển sang WebP.
+                </p>
               </div>
               <label
                 className={`secondary-button admin-image-upload${
+                  isOptimizingImages ||
                   currentImages.length + pendingImages.length >= maxImageCount
                     ? " is-disabled"
                     : ""
                 }`}
               >
                 <ImagePlus aria-hidden="true" />
-                <span>Chọn ảnh</span>
+                <span>{isOptimizingImages ? "Đang tối ưu..." : "Chọn ảnh"}</span>
                 <input
                   accept="image/jpeg,image/png,image/webp"
                   disabled={
+                    isOptimizingImages ||
                     currentImages.length + pendingImages.length >= maxImageCount
                   }
                   multiple
@@ -329,7 +347,13 @@ function ProductFormModal({
                       src={image.previewUrl}
                     />
                     <div className="admin-image-item-footer">
-                      <span className="admin-pending-image-label">Chờ tải lên</span>
+                      <span className="admin-pending-image-label">
+                        {image.wasOptimized
+                          ? `${formatFileSize(image.originalSize)} → ${formatFileSize(
+                              image.file.size,
+                            )}`
+                          : `${formatFileSize(image.file.size)} · Chờ tải`}
+                      </span>
                       <button
                         aria-label="Bỏ ảnh đã chọn"
                         className="admin-icon-button admin-image-delete"
@@ -345,7 +369,11 @@ function ProductFormModal({
             ) : (
               <div className="admin-image-empty">
                 <ImagePlus aria-hidden="true" />
-                <span>Chưa có ảnh sản phẩm.</span>
+                <span>
+                  {isOptimizingImages
+                    ? "Đang tối ưu ảnh trên thiết bị..."
+                    : "Chưa có ảnh sản phẩm."}
+                </span>
               </div>
             )}
           </section>
@@ -447,11 +475,26 @@ function ProductFormModal({
           ) : null}
 
           <footer className="admin-modal-actions">
-            <button className="secondary-button" onClick={onClose} type="button">
+            <button
+              className="secondary-button"
+              disabled={isSaving || isOptimizingImages}
+              onClick={onClose}
+              type="button"
+            >
               Hủy
             </button>
-            <button className="primary-button" disabled={isSaving} type="submit">
-              {isSaving ? "Đang lưu..." : product ? "Lưu thay đổi" : "Tạo sản phẩm"}
+            <button
+              className="primary-button"
+              disabled={isSaving || isOptimizingImages}
+              type="submit"
+            >
+              {isSaving
+                ? "Đang lưu..."
+                : isOptimizingImages
+                  ? "Đang tối ưu ảnh..."
+                  : product
+                    ? "Lưu thay đổi"
+                    : "Tạo sản phẩm"}
             </button>
           </footer>
         </form>
@@ -471,35 +514,67 @@ function ProductFormModal({
     }));
   }
 
-  function handleImageSelection(event: ChangeEvent<HTMLInputElement>) {
+  async function handleImageSelection(event: ChangeEvent<HTMLInputElement>) {
     const availableSlots =
       maxImageCount - currentImages.length - pendingImages.length;
     const selectedFiles = Array.from(event.target.files || []).slice(
       0,
       availableSlots,
     );
-    const validFiles = selectedFiles.filter(
-      (file) =>
+    event.target.value = "";
+    setSubmitError("");
+
+    const validFiles = selectedFiles.filter((file) => {
+      return (
         ["image/jpeg", "image/png", "image/webp"].includes(file.type) &&
         file.size > 0 &&
-        file.size <= 5 * 1024 * 1024,
-    );
+        file.size <= MAX_SOURCE_IMAGE_BYTES
+      );
+    });
 
     if (validFiles.length !== selectedFiles.length) {
       setSubmitError(
-        "Một số ảnh không hợp lệ. Chỉ nhận JPEG, PNG, WebP tối đa 5 MB.",
+        "Một số ảnh không hợp lệ. Chỉ nhận JPEG, PNG hoặc WebP tối đa 30 MB.",
       );
     }
 
-    setPendingImages((current) => [
-      ...current,
-      ...validFiles.map((file) => ({
-        id: crypto.randomUUID(),
-        file,
-        previewUrl: URL.createObjectURL(file),
-      })),
-    ]);
-    event.target.value = "";
+    if (validFiles.length === 0) {
+      return;
+    }
+
+    setIsOptimizingImages(true);
+
+    try {
+      const optimizedImages: PendingImage[] = [];
+      const errors: string[] = [];
+
+      for (const file of validFiles) {
+        try {
+          const result = await optimizeImageForUpload(file);
+          optimizedImages.push({
+            id: crypto.randomUUID(),
+            file: result.file,
+            previewUrl: URL.createObjectURL(result.file),
+            originalSize: result.originalSize,
+            wasOptimized: result.wasOptimized,
+          });
+        } catch (error) {
+          errors.push(
+            error instanceof Error
+              ? error.message
+              : `Không thể tối ưu ${file.name}.`,
+          );
+        }
+      }
+
+      setPendingImages((current) => [...current, ...optimizedImages]);
+
+      if (errors.length > 0) {
+        setSubmitError(errors.join(" "));
+      }
+    } finally {
+      setIsOptimizingImages(false);
+    }
   }
 
   function removePendingImage(id: string) {
