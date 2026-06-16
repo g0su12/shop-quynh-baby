@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -14,8 +15,10 @@ import {
   LockKeyhole,
   Pencil,
   Plus,
+  Search,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import {
   Camera,
@@ -76,6 +79,67 @@ const stockLabel: Record<StockStatus, string> = {
   in_stock: "Còn hàng",
   low_stock: "Sắp hết",
   out_of_stock: "Hết hàng",
+};
+
+const genderLabel: Record<Product["gender"], string> = {
+  boy: "Bé trai",
+  girl: "Bé gái",
+  unisex: "Unisex",
+};
+
+const genderFilterOptions: Array<{
+  label: string;
+  value: Product["gender"] | "all";
+}> = [
+  { label: "Tất cả", value: "all" },
+  { label: "Bé trai", value: "boy" },
+  { label: "Bé gái", value: "girl" },
+  { label: "Unisex", value: "unisex" },
+];
+
+const stockFilterOptions: Array<{ label: string; value: StockStatus | "all" }> = [
+  { label: "Tất cả", value: "all" },
+  { label: "Còn hàng", value: "in_stock" },
+  { label: "Sắp hết", value: "low_stock" },
+  { label: "Hết hàng", value: "out_of_stock" },
+];
+
+type ProductVisibilityFilter = "all" | "visible" | "hidden" | "featured";
+type ProductSort = "default" | "name" | "stock" | "visibility" | "featured";
+type MediaFilter = "all" | "primary" | "secondary" | "missing";
+type MediaImage = Product["images"][number] & {
+  product: Product;
+};
+
+const visibilityFilterOptions: Array<{
+  label: string;
+  value: ProductVisibilityFilter;
+}> = [
+  { label: "Tất cả", value: "all" },
+  { label: "Đang hiển thị", value: "visible" },
+  { label: "Đã ẩn", value: "hidden" },
+  { label: "Nổi bật", value: "featured" },
+];
+
+const productSortOptions: Array<{ label: string; value: ProductSort }> = [
+  { label: "Mặc định", value: "default" },
+  { label: "Tên A-Z", value: "name" },
+  { label: "Cần xử lý trước", value: "stock" },
+  { label: "Đã ẩn trước", value: "visibility" },
+  { label: "Nổi bật trước", value: "featured" },
+];
+
+const mediaFilterOptions: Array<{ label: string; value: MediaFilter }> = [
+  { label: "Tất cả ảnh", value: "all" },
+  { label: "Ảnh đại diện", value: "primary" },
+  { label: "Ảnh phụ", value: "secondary" },
+  { label: "Thiếu ảnh", value: "missing" },
+];
+
+const stockSortPriority: Record<StockStatus, number> = {
+  low_stock: 0,
+  out_of_stock: 1,
+  in_stock: 2,
 };
 
 type AuthStatus = "checking" | "authenticated" | "unauthenticated";
@@ -171,6 +235,18 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [pendingCreatedProduct, setPendingCreatedProduct] =
     useState<Product | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [productCategoryFilter, setProductCategoryFilter] = useState("Tất cả");
+  const [productGenderFilter, setProductGenderFilter] =
+    useState<Product["gender"] | "all">("all");
+  const [productStockFilter, setProductStockFilter] =
+    useState<StockStatus | "all">("all");
+  const [productVisibilityFilter, setProductVisibilityFilter] =
+    useState<ProductVisibilityFilter>("all");
+  const [productSort, setProductSort] = useState<ProductSort>("default");
+  const [mediaSearch, setMediaSearch] = useState("");
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
+  const [mediaActionId, setMediaActionId] = useState("");
   const [activeSection, setActiveSection] = useState<AdminSectionId>(() =>
     getInitialAdminSection(),
   );
@@ -249,15 +325,153 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     };
   }, []);
 
-  const visibleProducts = catalogProducts.filter(
-    (product) => product.stockStatus !== "out_of_stock",
+  const sellingProducts = catalogProducts.filter(
+    (product) => product.isVisible && product.stockStatus !== "out_of_stock",
   ).length;
   const lowStockProducts = catalogProducts.filter(
-    (product) => product.stockStatus === "low_stock",
+    (product) => product.isVisible && product.stockStatus === "low_stock",
   ).length;
   const featuredProducts = catalogProducts.filter(
     (product) => product.isFeatured,
   ).length;
+  const mediaImages = useMemo(
+    () =>
+      catalogProducts.flatMap((product) =>
+        product.images.map((image) => ({
+          ...image,
+          product,
+        })),
+      ),
+    [catalogProducts],
+  );
+  const productsMissingImages = useMemo(
+    () => catalogProducts.filter((product) => product.images.length === 0),
+    [catalogProducts],
+  );
+  const productCategoryOptions = useMemo(() => {
+    const categories = [
+      ...new Set(
+        catalogProducts
+          .map((product) => product.category)
+          .filter((category) => category.trim()),
+      ),
+    ].sort((first, second) =>
+      first.localeCompare(second, "vi", { numeric: true }),
+    );
+
+    return ["Tất cả", ...categories];
+  }, [catalogProducts]);
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = normalizeSearchValue(productSearch);
+
+    return catalogProducts
+      .map((product, index) => ({ index, product }))
+      .filter(({ product }) => {
+        const matchesSearch =
+          !normalizedSearch ||
+          [
+            product.name,
+            product.description,
+            product.category,
+            product.ageGroup,
+            product.weightRange,
+            ...product.sizes,
+            ...product.colors,
+          ]
+            .filter(Boolean)
+            .some((value) =>
+              normalizeSearchValue(value).includes(normalizedSearch),
+            );
+        const matchesCategory =
+          productCategoryFilter === "Tất cả" ||
+          product.category === productCategoryFilter;
+        const matchesGender =
+          productGenderFilter === "all" ||
+          product.gender === productGenderFilter;
+        const matchesStock =
+          productStockFilter === "all" ||
+          product.stockStatus === productStockFilter;
+        const matchesVisibility = matchesProductVisibilityFilter(
+          product,
+          productVisibilityFilter,
+        );
+
+        return (
+          matchesSearch &&
+          matchesCategory &&
+          matchesGender &&
+          matchesStock &&
+          matchesVisibility
+        );
+      })
+      .sort(
+        (first, second) =>
+          compareAdminProducts(first.product, second.product, productSort) ||
+          first.index - second.index,
+      )
+      .map(({ product }) => product);
+  }, [
+    catalogProducts,
+    productCategoryFilter,
+    productGenderFilter,
+    productSearch,
+    productSort,
+    productStockFilter,
+    productVisibilityFilter,
+  ]);
+  const hasActiveProductFilters =
+    productSearch.trim() ||
+    productCategoryFilter !== "Tất cả" ||
+    productGenderFilter !== "all" ||
+    productStockFilter !== "all" ||
+    productVisibilityFilter !== "all" ||
+    productSort !== "default";
+  const normalizedMediaSearch = normalizeSearchValue(mediaSearch);
+  const filteredMediaImages = useMemo(
+    () =>
+      mediaImages.filter((image) => {
+        const matchesFilter =
+          mediaFilter === "all" ||
+          (mediaFilter === "primary" && image.isPrimary) ||
+          (mediaFilter === "secondary" && !image.isPrimary);
+        const matchesSearch =
+          !normalizedMediaSearch ||
+          [
+            image.product.name,
+            image.product.category,
+            image.product.ageGroup,
+            image.product.weightRange,
+            image.altText,
+          ]
+            .filter(Boolean)
+            .some((value) =>
+              normalizeSearchValue(value).includes(normalizedMediaSearch),
+            );
+
+        return matchesFilter && matchesSearch;
+      }),
+    [mediaFilter, mediaImages, normalizedMediaSearch],
+  );
+  const filteredProductsMissingImages = useMemo(
+    () =>
+      productsMissingImages.filter((product) => {
+        return (
+          !normalizedMediaSearch ||
+          [
+            product.name,
+            product.category,
+            product.ageGroup,
+            product.weightRange,
+          ]
+            .filter(Boolean)
+            .some((value) =>
+              normalizeSearchValue(value).includes(normalizedMediaSearch),
+            )
+        );
+      }),
+    [normalizedMediaSearch, productsMissingImages],
+  );
+  const hasActiveMediaFilters = mediaSearch.trim() || mediaFilter !== "all";
 
   return (
     <main className="admin-shell">
@@ -345,7 +559,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
               <AdminStat
                 icon={Package}
                 label="Mẫu đang bán"
-                value={visibleProducts.toString()}
+                value={sellingProducts.toString()}
               />
               <AdminStat
                 icon={MagicWand}
@@ -387,17 +601,136 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                 Đang tải sản phẩm từ D1...
               </div>
             ) : null}
-            <div className="admin-product-list">
-              {catalogProducts.map((product) => (
-                <AdminProductRow
-                  key={product.id}
-                  isDeleting={deletingProductId === product.id}
-                  onDelete={() => void handleProductDelete(product)}
-                  onEdit={() => openProductForm(product)}
-                  onToggleVisibility={() => void handleVisibilityToggle(product)}
-                  product={product}
+            <div className="admin-product-toolbar" aria-label="Lọc sản phẩm">
+              <label className="admin-product-search">
+                <Search aria-hidden="true" />
+                <input
+                  onChange={(event) => setProductSearch(event.target.value)}
+                  placeholder="Tìm tên, size, màu, độ tuổi"
+                  type="search"
+                  value={productSearch}
                 />
-              ))}
+              </label>
+
+              <div className="admin-product-filter-grid">
+                <label className="admin-filter-field">
+                  <span>Danh mục</span>
+                  <select
+                    onChange={(event) =>
+                      setProductCategoryFilter(event.target.value)
+                    }
+                    value={productCategoryFilter}
+                  >
+                    {productCategoryOptions.map((option) => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-filter-field">
+                  <span>Dành cho</span>
+                  <select
+                    onChange={(event) =>
+                      setProductGenderFilter(
+                        event.target.value as Product["gender"] | "all",
+                      )
+                    }
+                    value={productGenderFilter}
+                  >
+                    {genderFilterOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-filter-field">
+                  <span>Tồn hàng</span>
+                  <select
+                    onChange={(event) =>
+                      setProductStockFilter(
+                        event.target.value as StockStatus | "all",
+                      )
+                    }
+                    value={productStockFilter}
+                  >
+                    {stockFilterOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-filter-field">
+                  <span>Hiển thị</span>
+                  <select
+                    onChange={(event) =>
+                      setProductVisibilityFilter(
+                        event.target.value as ProductVisibilityFilter,
+                      )
+                    }
+                    value={productVisibilityFilter}
+                  >
+                    {visibilityFilterOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-filter-field">
+                  <span>Sắp xếp</span>
+                  <select
+                    onChange={(event) =>
+                      setProductSort(event.target.value as ProductSort)
+                    }
+                    value={productSort}
+                  >
+                    {productSortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="admin-product-toolbar-footer">
+                <span className="result-count">
+                  {filteredProducts.length}/{catalogProducts.length} mẫu
+                </span>
+                {hasActiveProductFilters ? (
+                  <button
+                    className="secondary-button admin-clear-filters"
+                    onClick={resetProductFilters}
+                    type="button"
+                  >
+                    <X aria-hidden="true" />
+                    <span>Xóa lọc</span>
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <div className="admin-product-list">
+              {filteredProducts.length > 0 ? (
+                filteredProducts.map((product) => (
+                  <AdminProductRow
+                    key={product.id}
+                    isDeleting={deletingProductId === product.id}
+                    onDelete={() => void handleProductDelete(product)}
+                    onEdit={() => openProductForm(product)}
+                    onToggleVisibility={() => void handleVisibilityToggle(product)}
+                    product={product}
+                  />
+                ))
+              ) : (
+                <div className="admin-empty-state">
+                  <Package aria-hidden="true" weight="duotone" />
+                  <div>
+                    <h3>Không có sản phẩm phù hợp</h3>
+                    <p>Đổi từ khóa hoặc bỏ bớt bộ lọc để xem lại catalog.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -447,21 +780,138 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                 <p className="eyebrow">Media</p>
                 <h2>Ảnh sản phẩm</h2>
               </div>
-              <button className="secondary-button" type="button">
+              <button
+                className="secondary-button"
+                onClick={() => scrollToAdminSection("products")}
+                type="button"
+              >
                 <Upload aria-hidden="true" />
-                <span>Tải ảnh</span>
+                <span>Chọn sản phẩm</span>
               </button>
             </div>
-            <div className="admin-empty-state">
-              <ImageSquare aria-hidden="true" weight="duotone" />
-              <div>
-                <h3>Kho ảnh sẽ được nối với R2 ở bước tiếp theo</h3>
-                <p>
-                  Tạm thời phần này là placeholder để navigation hoạt động đúng
-                  và giữ layout quản trị nhất quán.
-                </p>
+
+            <div className="admin-media-summary">
+              <AdminStat
+                icon={ImageSquare}
+                label="Ảnh đã tải"
+                value={mediaImages.length.toString()}
+              />
+              <AdminStat
+                icon={ShieldCheck}
+                label="Ảnh đại diện"
+                value={mediaImages
+                  .filter((image) => image.isPrimary)
+                  .length.toString()}
+              />
+              <AdminStat
+                icon={Camera}
+                label="Thiếu ảnh"
+                value={productsMissingImages.length.toString()}
+              />
+            </div>
+
+            <div className="admin-product-toolbar" aria-label="Lọc ảnh sản phẩm">
+              <label className="admin-product-search">
+                <Search aria-hidden="true" />
+                <input
+                  onChange={(event) => setMediaSearch(event.target.value)}
+                  placeholder="Tìm ảnh theo tên sản phẩm, danh mục"
+                  type="search"
+                  value={mediaSearch}
+                />
+              </label>
+
+              <div className="admin-media-filter-row">
+                {mediaFilterOptions.map((option) => (
+                  <button
+                    aria-pressed={mediaFilter === option.value}
+                    className="filter-chip"
+                    data-active={mediaFilter === option.value}
+                    key={option.value}
+                    onClick={() => setMediaFilter(option.value)}
+                    type="button"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="admin-product-toolbar-footer">
+                <span className="result-count">
+                  {mediaFilter === "missing"
+                    ? `${filteredProductsMissingImages.length}/${productsMissingImages.length} mẫu thiếu ảnh`
+                    : `${filteredMediaImages.length}/${mediaImages.length} ảnh`}
+                </span>
+                {hasActiveMediaFilters ? (
+                  <button
+                    className="secondary-button admin-clear-filters"
+                    onClick={resetMediaFilters}
+                    type="button"
+                  >
+                    <X aria-hidden="true" />
+                    <span>Xóa lọc</span>
+                  </button>
+                ) : null}
               </div>
             </div>
+
+            {mediaFilter === "missing" ? (
+              <div className="admin-missing-media-list">
+                {filteredProductsMissingImages.length > 0 ? (
+                  filteredProductsMissingImages.map((product) => (
+                    <article className="admin-missing-media-row" key={product.id}>
+                      <span className="admin-missing-media-icon">
+                        <ImageSquare aria-hidden="true" weight="duotone" />
+                      </span>
+                      <div>
+                        <h3>{product.name}</h3>
+                        <p>
+                          {product.category} · {genderLabel[product.gender]} ·{" "}
+                          {product.ageGroup || "Chưa nhập tuổi"}
+                        </p>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        onClick={() => openProductForm(product)}
+                        type="button"
+                      >
+                        <Upload aria-hidden="true" />
+                        <span>Tải ảnh</span>
+                      </button>
+                    </article>
+                  ))
+                ) : (
+                  <AdminEmptyState
+                    icon={ShieldCheck}
+                    title="Không có sản phẩm thiếu ảnh"
+                    description="Tất cả sản phẩm trong bộ lọc hiện tại đã có ảnh."
+                  />
+                )}
+              </div>
+            ) : filteredMediaImages.length > 0 ? (
+              <div className="admin-media-grid">
+                {filteredMediaImages.map((image) => (
+                  <AdminMediaCard
+                    image={image}
+                    isBusy={mediaActionId === image.id}
+                    key={image.id}
+                    onDelete={() => void handleMediaImageDelete(image)}
+                    onEditProduct={() => openProductForm(image.product)}
+                    onSetPrimary={() => void handleMediaSetPrimaryImage(image)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <AdminEmptyState
+                icon={ImageSquare}
+                title="Chưa có ảnh phù hợp"
+                description={
+                  mediaImages.length === 0
+                    ? "Ảnh sẽ xuất hiện ở đây sau khi bạn tải ảnh trong form sản phẩm."
+                    : "Đổi từ khóa hoặc bộ lọc để xem lại kho ảnh."
+                }
+              />
+            )}
           </section>
         </div>
       </section>
@@ -533,6 +983,20 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     setPendingCreatedProduct(null);
   }
 
+  function resetProductFilters() {
+    setProductSearch("");
+    setProductCategoryFilter("Tất cả");
+    setProductGenderFilter("all");
+    setProductStockFilter("all");
+    setProductVisibilityFilter("all");
+    setProductSort("default");
+  }
+
+  function resetMediaFilters() {
+    setMediaSearch("");
+    setMediaFilter("all");
+  }
+
   async function handleProductSave(input: ProductInput, imageFiles: File[]) {
     setIsSavingProduct(true);
     setCatalogError("");
@@ -576,6 +1040,44 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     upsertCatalogProduct(updatedProduct);
 
     return updatedProduct;
+  }
+
+  async function handleMediaImageDelete(image: MediaImage) {
+    const confirmed = window.confirm(
+      `Xóa ảnh này khỏi "${image.product.name}"?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCatalogError("");
+    setMediaActionId(image.id);
+
+    try {
+      await handleDeleteProductImage(image.id);
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error ? error.message : "Không thể xóa ảnh.",
+      );
+    } finally {
+      setMediaActionId("");
+    }
+  }
+
+  async function handleMediaSetPrimaryImage(image: MediaImage) {
+    setCatalogError("");
+    setMediaActionId(image.id);
+
+    try {
+      await handleSetPrimaryProductImage(image.id);
+    } catch (error) {
+      setCatalogError(
+        error instanceof Error ? error.message : "Không thể chọn ảnh đại diện.",
+      );
+    } finally {
+      setMediaActionId("");
+    }
   }
 
   function upsertCatalogProduct(updatedProduct: Product) {
@@ -794,6 +1296,107 @@ function AdminStat({ icon: Icon, label, value }: AdminStatProps) {
   );
 }
 
+type AdminEmptyStateProps = {
+  icon: typeof Package;
+  title: string;
+  description: string;
+};
+
+function AdminEmptyState({
+  description,
+  icon: Icon,
+  title,
+}: AdminEmptyStateProps) {
+  return (
+    <div className="admin-empty-state">
+      <Icon aria-hidden="true" weight="duotone" />
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+    </div>
+  );
+}
+
+type AdminMediaCardProps = {
+  image: MediaImage;
+  isBusy: boolean;
+  onDelete: () => void;
+  onEditProduct: () => void;
+  onSetPrimary: () => void;
+};
+
+function AdminMediaCard({
+  image,
+  isBusy,
+  onDelete,
+  onEditProduct,
+  onSetPrimary,
+}: AdminMediaCardProps) {
+  const productUrl = `/products/${encodeURIComponent(image.product.slug)}`;
+
+  return (
+    <article className="admin-media-card">
+      <div className="admin-media-preview">
+        <img alt={image.altText || image.product.name} src={image.url} />
+        {image.isPrimary ? (
+          <span className="admin-media-primary-badge">
+            <ShieldCheck aria-hidden="true" weight="duotone" />
+            Đại diện
+          </span>
+        ) : null}
+      </div>
+
+      <div className="admin-media-card-body">
+        <div>
+          <h3>{image.product.name}</h3>
+          <p>
+            {image.product.category} · {genderLabel[image.product.gender]} ·{" "}
+            {image.product.ageGroup || "Chưa nhập tuổi"}
+          </p>
+        </div>
+        <div className="admin-media-card-actions">
+          {image.product.isVisible ? (
+            <a
+              className="secondary-button"
+              href={productUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <Eye aria-hidden="true" />
+              <span>Xem</span>
+            </a>
+          ) : null}
+          <button className="secondary-button" onClick={onEditProduct} type="button">
+            <Pencil aria-hidden="true" />
+            <span>Sửa</span>
+          </button>
+          {!image.isPrimary ? (
+            <button
+              className="secondary-button"
+              disabled={isBusy}
+              onClick={onSetPrimary}
+              type="button"
+            >
+              <ShieldCheck aria-hidden="true" />
+              <span>Đại diện</span>
+            </button>
+          ) : null}
+          <button
+            className="secondary-button danger-button"
+            disabled={isBusy}
+            onClick={onDelete}
+            type="button"
+          >
+            <Trash2 aria-hidden="true" />
+            <span>{isBusy ? "Đang xóa" : "Xóa"}</span>
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 type AdminProductRowProps = {
   product: Product;
   isDeleting: boolean;
@@ -809,6 +1412,9 @@ function AdminProductRow({
   onEdit,
   onToggleVisibility,
 }: AdminProductRowProps) {
+  const productUrl = `/products/${encodeURIComponent(product.slug)}`;
+  const managementStatus = getProductManagementStatus(product);
+
   return (
     <article className="admin-product-row" data-hidden={!product.isVisible}>
       <img src={product.imageUrl} alt={product.name} />
@@ -816,7 +1422,9 @@ function AdminProductRow({
         <div>
           <h3>{product.name}</h3>
           <p>
-            {product.category} · {product.ageGroup} · {product.weightRange}
+            {product.category} · {genderLabel[product.gender]} ·{" "}
+            {product.ageGroup || "Chưa nhập tuổi"} ·{" "}
+            {product.weightRange || "Chưa nhập cân nặng"}
           </p>
         </div>
         <div className="admin-size-list">
@@ -825,10 +1433,46 @@ function AdminProductRow({
           ))}
         </div>
       </div>
-      <span className="admin-stock" data-status={product.stockStatus}>
-        {stockLabel[product.stockStatus]}
-      </span>
+      <div className="admin-status-list">
+        <span className="admin-stock" data-status={product.stockStatus}>
+          {stockLabel[product.stockStatus]}
+        </span>
+        <div className="admin-product-tags" aria-label="Trạng thái quản trị">
+          <span
+            className="admin-product-tag"
+            data-tone={managementStatus.tone}
+          >
+            {managementStatus.label}
+          </span>
+          {product.isFeatured ? (
+            <span className="admin-product-tag" data-tone="featured">
+              Nổi bật
+            </span>
+          ) : null}
+        </div>
+      </div>
       <div className="admin-row-actions">
+        {product.isVisible ? (
+          <a
+            className="secondary-button"
+            href={productUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <Eye aria-hidden="true" />
+            <span>Xem</span>
+          </a>
+        ) : (
+          <button
+            className="secondary-button"
+            disabled
+            title="Sản phẩm đang ẩn trên website"
+            type="button"
+          >
+            <Eye aria-hidden="true" />
+            <span>Xem</span>
+          </button>
+        )}
         <button className="secondary-button" onClick={onEdit} type="button">
           <Pencil aria-hidden="true" />
           <span>Sửa</span>
@@ -853,6 +1497,64 @@ function AdminProductRow({
       </div>
     </article>
   );
+}
+
+function normalizeSearchValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getProductManagementStatus(product: Product) {
+  if (!product.isVisible) {
+    return { label: "Đã ẩn", tone: "muted" };
+  }
+
+  if (product.stockStatus === "out_of_stock") {
+    return { label: "Hết hàng", tone: "danger" };
+  }
+
+  return { label: "Đang bán", tone: "success" };
+}
+
+function matchesProductVisibilityFilter(
+  product: Product,
+  filter: ProductVisibilityFilter,
+) {
+  switch (filter) {
+    case "visible":
+      return product.isVisible;
+    case "hidden":
+      return !product.isVisible;
+    case "featured":
+      return product.isFeatured;
+    default:
+      return true;
+  }
+}
+
+function compareAdminProducts(
+  first: Product,
+  second: Product,
+  sort: ProductSort,
+) {
+  switch (sort) {
+    case "name":
+      return compareText(first.name, second.name);
+    case "stock":
+      return (
+        stockSortPriority[first.stockStatus] -
+          stockSortPriority[second.stockStatus] || compareText(first.name, second.name)
+      );
+    case "visibility":
+      return Number(first.isVisible) - Number(second.isVisible);
+    case "featured":
+      return Number(second.isFeatured) - Number(first.isFeatured);
+    default:
+      return 0;
+  }
+}
+
+function compareText(first: string, second: string) {
+  return first.localeCompare(second, "vi", { numeric: true });
 }
 
 export default AdminPage;

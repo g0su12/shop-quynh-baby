@@ -2,7 +2,7 @@ import { pbkdf2Sync, randomBytes } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
-const iterations = 210_000;
+const iterations = 100_000;
 let password = process.argv[2];
 
 if (!password) {

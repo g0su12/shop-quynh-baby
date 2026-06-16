@@ -42,10 +42,21 @@ Generate a password hash:
 npm run admin:hash -- "your strong admin password"
 ```
 
+The script uses 100,000 PBKDF2 iterations because Cloudflare Workers rejects
+higher PBKDF2 iteration counts at runtime.
+
 Set these Cloudflare Worker secrets:
 
 - `ADMIN_PASSWORD_HASH`: the generated `pbkdf2_sha256$...` value.
 - `ADMIN_SESSION_SECRET`: a long random secret used to sign admin sessions.
+
+For temporary production debugging, set `ADMIN_AUTH_DEBUG=1` on the Worker.
+The login route writes structured `[admin-auth]` logs with only hash metadata
+such as segment count, iteration validity, whitespace/quote flags, and cookie
+security mode. Debug mode also includes a short non-reversible hash fingerprint
+and password input metadata such as length/whitespace flags. It does not log the
+admin password or the full password hash.
+Failed login and missing-secret cases are logged even when debug mode is off.
 
 Cloudflare dashboard secrets are not available on localhost. Wrangler loads
 local secrets from `.dev.vars`.

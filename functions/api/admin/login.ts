@@ -1,16 +1,29 @@
 import {
   createAdminSessionCookie,
   type AdminAuthEnv,
-  verifyAdminPassword,
+  verifyAdminPasswordWithDiagnostics,
 } from "../../_lib/adminAuth";
 
+const supportedPbkdf2Iterations = 100_000;
+
 export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
+  const isDebugEnabled = isAdminAuthDebugEnabled(context.env.ADMIN_AUTH_DEBUG);
+
   if (!context.env.ADMIN_PASSWORD_HASH || !context.env.ADMIN_SESSION_SECRET) {
     const hostname = new URL(context.request.url).hostname;
     const isLocal =
       hostname === "localhost" ||
       hostname === "127.0.0.1" ||
       hostname === "[::1]";
+
+    logAdminAuth("warn", "admin_login_misconfigured", context, {
+      hasPasswordHash: Boolean(context.env.ADMIN_PASSWORD_HASH),
+      hasSessionSecret: Boolean(context.env.ADMIN_SESSION_SECRET),
+      passwordHash: await summarizePasswordHash(
+        context.env.ADMIN_PASSWORD_HASH,
+        isDebugEnabled,
+      ),
+    });
 
     return Response.json(
       {
@@ -21,6 +34,16 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
       },
       { status: 503 },
     );
+  }
+
+  if (isDebugEnabled) {
+    logAdminAuth("info", "admin_login_attempt", context, {
+      passwordHash: await summarizePasswordHash(
+        context.env.ADMIN_PASSWORD_HASH,
+        true,
+      ),
+      hasSessionSecret: Boolean(context.env.ADMIN_SESSION_SECRET),
+    });
   }
 
   let payload: { password?: string };
@@ -47,12 +70,25 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
     );
   }
 
-  const isValidPassword = await verifyAdminPassword(
+  const verification = await verifyAdminPasswordWithDiagnostics(
     payload.password,
     context.env.ADMIN_PASSWORD_HASH,
   );
 
-  if (!isValidPassword) {
+  if (!verification.ok) {
+    logAdminAuth("warn", "admin_login_failed", context, {
+      reason: "invalid_password_or_password_hash",
+      verification,
+      passwordHash: await summarizePasswordHash(
+        context.env.ADMIN_PASSWORD_HASH,
+        isDebugEnabled,
+      ),
+      passwordInput: isDebugEnabled
+        ? summarizePasswordInput(payload.password)
+        : undefined,
+      hasSessionSecret: Boolean(context.env.ADMIN_SESSION_SECRET),
+    });
+
     return Response.json(
       {
         ok: false,
@@ -64,6 +100,19 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
 
   const requestUrl = new URL(context.request.url);
   const useSecureCookie = requestUrl.protocol === "https:";
+
+  if (isDebugEnabled) {
+    logAdminAuth("info", "admin_login_success", context, {
+      useSecureCookie,
+      verification,
+      passwordHash: await summarizePasswordHash(
+        context.env.ADMIN_PASSWORD_HASH,
+        true,
+      ),
+      passwordInput: summarizePasswordInput(payload.password),
+      hasSessionSecret: Boolean(context.env.ADMIN_SESSION_SECRET),
+    });
+  }
 
   return Response.json(
     {
@@ -79,3 +128,98 @@ export const onRequestPost: PagesFunction<AdminAuthEnv> = async (context) => {
     },
   );
 };
+
+function isAdminAuthDebugEnabled(value: string | undefined) {
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+function logAdminAuth(
+  level: "info" | "warn",
+  event: string,
+  context: EventContext<AdminAuthEnv, string, unknown>,
+  details: Record<string, unknown>,
+) {
+  const requestUrl = new URL(context.request.url);
+
+  console[level](
+    `[admin-auth] ${JSON.stringify({
+      event,
+      hostname: requestUrl.hostname,
+      protocol: requestUrl.protocol,
+      method: context.request.method,
+      ...details,
+    })}`,
+  );
+}
+
+async function summarizePasswordHash(
+  storedHash: string | undefined,
+  includeDebugFingerprint = false,
+) {
+  if (!storedHash) {
+    return {
+      configured: false,
+    };
+  }
+
+  const trimmedHash = storedHash.trim();
+  const parts = storedHash.split("$");
+  const iterations = Number(parts[1]);
+  const quoteWrapped =
+    (storedHash.startsWith('"') && storedHash.endsWith('"')) ||
+    (storedHash.startsWith("'") && storedHash.endsWith("'")) ||
+    (storedHash.startsWith("`") && storedHash.endsWith("`"));
+
+  const summary = {
+    configured: true,
+    length: storedHash.length,
+    trimmedLength: trimmedHash.length,
+    hasOuterWhitespace: storedHash !== trimmedHash,
+    containsWhitespace: /\s/.test(storedHash),
+    quoteWrapped,
+    segmentCount: parts.length,
+    algorithmOk: parts[0] === "pbkdf2_sha256",
+    algorithmLength: parts[0]?.length || 0,
+    iterations,
+    iterationsOk:
+      Number.isInteger(iterations) &&
+      iterations === supportedPbkdf2Iterations,
+    supportedIterations: supportedPbkdf2Iterations,
+    saltLength: parts[2]?.length || 0,
+    hashLength: parts[3]?.length || 0,
+    extraSegmentCount: Math.max(parts.length - 4, 0),
+  };
+
+  return includeDebugFingerprint
+    ? {
+        ...summary,
+        debugFingerprint: await createDebugFingerprint(storedHash),
+      }
+    : summary;
+}
+
+function summarizePasswordInput(password: string) {
+  const trimmedPassword = password.trim();
+
+  return {
+    length: password.length,
+    trimmedLength: trimmedPassword.length,
+    utf8ByteLength: new TextEncoder().encode(password).byteLength,
+    codePointCount: [...password].length,
+    hasOuterWhitespace: password !== trimmedPassword,
+    containsWhitespace: /\s/.test(password),
+    hasNonAscii: /[^\x00-\x7F]/.test(password),
+  };
+}
+
+async function createDebugFingerprint(value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+
+  return [...new Uint8Array(digest)]
+    .slice(0, 6)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
