@@ -12,7 +12,11 @@ type ProductRow = {
   category: string;
   gender: "boy" | "girl" | "unisex";
   age_group: string | null;
+  age_min_months?: number | null;
+  age_max_months?: number | null;
   weight_range: string | null;
+  weight_min_kg?: number | null;
+  weight_max_kg?: number | null;
   is_visible: number;
   is_featured: number;
   stock_status: "in_stock" | "low_stock" | "out_of_stock";
@@ -42,13 +46,22 @@ type ProductImageKeyRow = {
   object_key: string;
 };
 
+type NumericRange = {
+  min: number;
+  max: number;
+};
+
 export type ProductPayload = {
   name: string;
   description: string;
   category: string;
   gender: "boy" | "girl" | "unisex";
   ageGroup: string;
+  ageMinMonths: number;
+  ageMaxMonths: number;
   weightRange: string;
+  weightMinKg: number;
+  weightMaxKg: number;
   stockStatus: "in_stock" | "low_stock" | "out_of_stock";
   isFeatured: boolean;
   isVisible: boolean;
@@ -126,9 +139,10 @@ export async function createProduct(db: D1Database, payload: ProductPayload) {
     db
       .prepare(
         `INSERT INTO products (
-          id, name, slug, description, category, gender, age_group, weight_range,
-          is_visible, is_featured, stock_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, name, slug, description, category, gender, age_group,
+          age_min_months, age_max_months, weight_range, weight_min_kg,
+          weight_max_kg, is_visible, is_featured, stock_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -138,7 +152,11 @@ export async function createProduct(db: D1Database, payload: ProductPayload) {
         payload.category,
         payload.gender,
         payload.ageGroup,
+        payload.ageMinMonths,
+        payload.ageMaxMonths,
         payload.weightRange,
+        payload.weightMinKg,
+        payload.weightMaxKg,
         payload.isVisible ? 1 : 0,
         payload.isFeatured ? 1 : 0,
         payload.stockStatus,
@@ -167,8 +185,9 @@ export async function updateProduct(
       .prepare(
         `UPDATE products SET
           name = ?, description = ?, category = ?, gender = ?, age_group = ?,
-          weight_range = ?, is_visible = ?, is_featured = ?, stock_status = ?,
-          updated_at = datetime('now')
+          age_min_months = ?, age_max_months = ?, weight_range = ?,
+          weight_min_kg = ?, weight_max_kg = ?, is_visible = ?,
+          is_featured = ?, stock_status = ?, updated_at = datetime('now')
         WHERE id = ?`,
       )
       .bind(
@@ -177,7 +196,11 @@ export async function updateProduct(
         payload.category,
         payload.gender,
         payload.ageGroup,
+        payload.ageMinMonths,
+        payload.ageMaxMonths,
         payload.weightRange,
+        payload.weightMinKg,
+        payload.weightMaxKg,
         payload.isVisible ? 1 : 0,
         payload.isFeatured ? 1 : 0,
         payload.stockStatus,
@@ -244,8 +267,28 @@ export function validateProductPayload(value: unknown): ProductPayload {
   const input = value as Partial<ProductPayload>;
   const name = cleanText(input.name);
   const category = cleanText(input.category);
+  const rawAgeGroup = cleanText(input.ageGroup);
+  const rawWeightRange = cleanText(input.weightRange);
   const gender = input.gender;
   const stockStatus = input.stockStatus;
+  const ageRange =
+    readBoundedRange(
+      input.ageMinMonths,
+      input.ageMaxMonths,
+      { min: 12, max: 216 },
+      "Độ tuổi",
+      "1-18 tuổi",
+      true,
+    ) || parseAgeRangeToMonths(rawAgeGroup);
+  const weightRange =
+    readBoundedRange(
+      input.weightMinKg,
+      input.weightMaxKg,
+      { min: 5, max: 40 },
+      "Cân nặng",
+      "5-40kg",
+      false,
+    ) || parseWeightRangeToKg(rawWeightRange);
 
   if (!name || name.length > 160) {
     throw new Error("Tên sản phẩm là bắt buộc và tối đa 160 ký tự.");
@@ -261,6 +304,22 @@ export function validateProductPayload(value: unknown): ProductPayload {
 
   if (!isStockStatus(stockStatus)) {
     throw new Error("Tình trạng sản phẩm không hợp lệ.");
+  }
+
+  if (!ageRange) {
+    throw new Error("Hãy nhập khoảng độ tuổi trong khoảng 1-18 tuổi.");
+  }
+
+  if (!rangeWithin(ageRange, { min: 12, max: 216 })) {
+    throw new Error("Độ tuổi sản phẩm phải nằm trong khoảng 1-18 tuổi.");
+  }
+
+  if (!weightRange) {
+    throw new Error("Hãy nhập khoảng cân nặng trong khoảng 5-40kg.");
+  }
+
+  if (!rangeWithin(weightRange, { min: 5, max: 40 })) {
+    throw new Error("Cân nặng sản phẩm phải nằm trong khoảng 5-40kg.");
   }
 
   if (!Array.isArray(input.variants) || input.variants.length === 0) {
@@ -291,8 +350,12 @@ export function validateProductPayload(value: unknown): ProductPayload {
     description: cleanText(input.description),
     category,
     gender,
-    ageGroup: cleanText(input.ageGroup),
-    weightRange: cleanText(input.weightRange),
+    ageGroup: formatAgeRangeLabel(ageRange),
+    ageMinMonths: ageRange.min,
+    ageMaxMonths: ageRange.max,
+    weightRange: formatWeightRangeLabel(weightRange),
+    weightMinKg: weightRange.min,
+    weightMaxKg: weightRange.max,
     stockStatus,
     isFeatured: Boolean(input.isFeatured),
     isVisible: input.isVisible !== false,
@@ -346,6 +409,8 @@ function mapProducts(
   return products.map((product) => {
     const productVariants = variantsByProduct.get(product.id) || [];
     const productImages = imagesByProduct.get(product.id) || [];
+    const ageRange = resolveAgeRange(product);
+    const weightRange = resolveWeightRange(product);
     const sizes = [...new Set(productVariants.map((variant) => variant.size_label))];
     const colors = [
       ...new Set(
@@ -362,8 +427,16 @@ function mapProducts(
       description: product.description || "",
       category: product.category,
       gender: product.gender,
-      ageGroup: product.age_group || "",
-      weightRange: product.weight_range || "",
+      ageGroup: ageRange
+        ? formatAgeRangeLabel(ageRange)
+        : product.age_group || "",
+      ageMinMonths: ageRange?.min ?? null,
+      ageMaxMonths: ageRange?.max ?? null,
+      weightRange: weightRange
+        ? formatWeightRangeLabel(weightRange)
+        : product.weight_range || "",
+      weightMinKg: weightRange?.min ?? null,
+      weightMaxKg: weightRange?.max ?? null,
       stockStatus: product.stock_status,
       isVisible: Boolean(product.is_visible),
       isFeatured: Boolean(product.is_featured),
@@ -397,6 +470,180 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 100);
+}
+
+function resolveAgeRange(product: ProductRow) {
+  return (
+    normalizeNumericRangeFromValues(
+      product.age_min_months,
+      product.age_max_months,
+    ) || parseAgeRangeToMonths(product.age_group || "")
+  );
+}
+
+function resolveWeightRange(product: ProductRow) {
+  return (
+    normalizeNumericRangeFromValues(product.weight_min_kg, product.weight_max_kg) ||
+    parseWeightRangeToKg(product.weight_range || "")
+  );
+}
+
+function readBoundedRange(
+  minValue: unknown,
+  maxValue: unknown,
+  bounds: NumericRange,
+  label: string,
+  boundsLabel: string,
+  requireInteger: boolean,
+) {
+  const min = readOptionalNumber(minValue);
+  const max = readOptionalNumber(maxValue);
+
+  if (min === null && max === null) {
+    return null;
+  }
+
+  if (min === null || max === null) {
+    throw new Error(`${label} cần nhập đủ giá trị từ và đến.`);
+  }
+
+  if (requireInteger && (!Number.isInteger(min) || !Number.isInteger(max))) {
+    throw new Error(`${label} phải là số nguyên.`);
+  }
+
+  if (min > max) {
+    throw new Error(`${label} bắt đầu phải nhỏ hơn hoặc bằng kết thúc.`);
+  }
+
+  if (!rangeWithin({ min, max }, bounds)) {
+    throw new Error(`${label} phải nằm trong khoảng ${boundsLabel}.`);
+  }
+
+  return { min, max };
+}
+
+function readOptionalNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numberValue =
+    typeof value === "number" ? value : Number(String(value).replace(",", "."));
+
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function parseAgeRangeToMonths(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const match = normalized.match(
+    /(\d+(?:[.,]\d+)?)\s*(?:-|đến|to)?\s*(\d+(?:[.,]\d+)?)?\s*(tháng|tuổi)?/,
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const firstValue = parseLocalizedNumber(match[1]);
+  const secondValue = match[2] ? parseLocalizedNumber(match[2]) : firstValue;
+  const multiplier = match[3] === "tháng" ? 1 : 12;
+
+  return normalizeNumericRange({
+    min: firstValue * multiplier,
+    max: secondValue * multiplier,
+  });
+}
+
+function parseWeightRangeToKg(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const match = normalized.match(
+    /(\d+(?:[.,]\d+)?)\s*(?:-|đến|to)?\s*(\d+(?:[.,]\d+)?)?\s*(?:kg)?/,
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const firstValue = parseLocalizedNumber(match[1]);
+  const secondValue = match[2] ? parseLocalizedNumber(match[2]) : firstValue;
+
+  return normalizeNumericRange({
+    min: firstValue,
+    max: secondValue,
+  });
+}
+
+function normalizeNumericRangeFromValues(
+  min: number | null | undefined,
+  max: number | null | undefined,
+) {
+  if (min === null || min === undefined || max === null || max === undefined) {
+    return null;
+  }
+
+  return normalizeNumericRange({ min, max });
+}
+
+function normalizeNumericRange(range: NumericRange) {
+  if (!Number.isFinite(range.min) || !Number.isFinite(range.max)) {
+    return null;
+  }
+
+  return {
+    min: Math.min(range.min, range.max),
+    max: Math.max(range.min, range.max),
+  };
+}
+
+function rangeWithin(range: NumericRange, bounds: NumericRange) {
+  return range.min >= bounds.min && range.max <= bounds.max;
+}
+
+function parseLocalizedNumber(value: string) {
+  return Number(value.replace(",", "."));
+}
+
+function formatAgeRangeLabel(range: NumericRange) {
+  if (range.min === range.max) {
+    return formatAgeMonths(range.min);
+  }
+
+  const minYears = range.min / 12;
+  const maxYears = range.max / 12;
+
+  if (Number.isInteger(minYears) && Number.isInteger(maxYears)) {
+    return `${formatNumber(minYears)}-${formatNumber(maxYears)} tuổi`;
+  }
+
+  return `${formatAgeMonths(range.min)}-${formatAgeMonths(range.max)}`;
+}
+
+function formatAgeMonths(value: number) {
+  if (value < 12) {
+    return `${formatNumber(value)} tháng`;
+  }
+
+  if (value % 12 === 0) {
+    return `${formatNumber(value / 12)} tuổi`;
+  }
+
+  const years = Math.floor(value / 12);
+  const months = value % 12;
+
+  return `${years} tuổi ${formatNumber(months)} tháng`;
+}
+
+function formatWeightRangeLabel(range: NumericRange) {
+  if (range.min === range.max) {
+    return `${formatNumber(range.min)}kg`;
+  }
+
+  return `${formatNumber(range.min)}-${formatNumber(range.max)}kg`;
+}
+
+function formatNumber(value: number) {
+  return Number.isInteger(value)
+    ? value.toString()
+    : value.toLocaleString("vi-VN", { maximumFractionDigits: 1 });
 }
 
 function cleanText(value: unknown) {

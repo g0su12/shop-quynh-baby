@@ -41,37 +41,50 @@ import {
   updateProduct,
   uploadProductImages,
 } from "../api/products";
+import {
+  fetchAdminTryOnRequests,
+  updateAdminTryOnRequestStatus,
+} from "../api/tryOnRequests";
 import { products as mockProducts } from "../data/mockProducts";
-import type { Product, ProductInput, StockStatus } from "../types";
+import type {
+  ContactChannel,
+  Product,
+  ProductInput,
+  StockStatus,
+  TryOnRequest,
+  TryOnStatus,
+} from "../types";
 
-type TryOnRequest = {
-  id: string;
-  productName: string;
-  customerName: string;
-  customerPhone: string;
-  channel: "Zalo" | "Facebook";
-  createdAt: string;
-  status: "pending" | "approved" | "completed";
-};
-
-const tryOnRequests: TryOnRequest[] = [
+const mockTryOnRequests: TryOnRequest[] = [
   {
     id: "try-001",
+    productId: "p002",
     productName: "Váy hoa nhẹ nhàng",
+    productSlug: "vay-hoa-nhe-nhang",
     customerName: "Chị Lan",
     customerPhone: "09xx xxx 128",
-    channel: "Zalo",
-    createdAt: "15 phút trước",
+    customerContactChannel: "zalo",
+    inputImageUrl: "",
     status: "pending",
+    adminNote: "",
+    createdAt: new Date().toISOString(),
+    processedAt: "",
+    expiresAt: "",
   },
   {
     id: "try-002",
+    productId: "p001",
     productName: "Set cotton pastel đi chơi",
+    productSlug: "set-cotton-pastel-di-choi",
     customerName: "Anh Minh",
     customerPhone: "09xx xxx 204",
-    channel: "Facebook",
-    createdAt: "1 giờ trước",
+    customerContactChannel: "facebook",
+    inputImageUrl: "",
     status: "approved",
+    adminNote: "",
+    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    processedAt: "",
+    expiresAt: "",
   },
 ];
 
@@ -79,6 +92,21 @@ const stockLabel: Record<StockStatus, string> = {
   in_stock: "Còn hàng",
   low_stock: "Sắp hết",
   out_of_stock: "Hết hàng",
+};
+
+const contactChannelLabel: Record<ContactChannel, string> = {
+  zalo: "Zalo",
+  facebook: "Facebook",
+  phone: "Gọi điện",
+};
+
+const tryOnStatusLabel: Record<TryOnStatus, string> = {
+  pending: "Chờ duyệt",
+  approved: "Đã duyệt",
+  processing: "Đang xử lý",
+  completed: "Hoàn tất",
+  rejected: "Từ chối",
+  failed: "Lỗi",
 };
 
 const genderLabel: Record<Product["gender"], string> = {
@@ -229,6 +257,11 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(mockProducts);
   const [catalogError, setCatalogError] = useState("");
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [tryOnRequests, setTryOnRequests] =
+    useState<TryOnRequest[]>(mockTryOnRequests);
+  const [tryOnError, setTryOnError] = useState("");
+  const [isLoadingTryOnRequests, setIsLoadingTryOnRequests] = useState(true);
+  const [tryOnActionId, setTryOnActionId] = useState("");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState("");
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
@@ -280,6 +313,39 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     }
 
     void loadProducts();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadTryOnRequests() {
+      try {
+        const nextRequests = await fetchAdminTryOnRequests();
+
+        if (!ignore) {
+          setTryOnRequests(nextRequests);
+          setTryOnError("");
+        }
+      } catch (error) {
+        if (!ignore) {
+          setTryOnError(
+            error instanceof Error
+              ? error.message
+              : "Không thể tải yêu cầu thử đồ từ D1.",
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoadingTryOnRequests(false);
+        }
+      }
+    }
+
+    void loadTryOnRequests();
 
     return () => {
       ignore = true;
@@ -742,35 +808,100 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
               </div>
               <span className="result-count">{tryOnRequests.length} yêu cầu</span>
             </div>
+            {tryOnError ? (
+              <div className="admin-data-notice" role="status">
+                <strong>Đang hiển thị dữ liệu mẫu.</strong>
+                <span>{tryOnError}</span>
+              </div>
+            ) : null}
+            {isLoadingTryOnRequests ? (
+              <div className="admin-data-notice" role="status">
+                Đang tải yêu cầu thử đồ từ D1...
+              </div>
+            ) : null}
             <div className="try-on-list">
-              {tryOnRequests.map((request) => (
-                <article className="try-on-row" key={request.id}>
-                  <div className="try-on-avatar">
-                    <MagicWand aria-hidden="true" weight="duotone" />
-                  </div>
-                  <div className="try-on-main">
-                    <h3>{request.productName}</h3>
-                    <p>
-                      {request.customerName} · {request.customerPhone} · {request.channel}
-                    </p>
-                    <small>{request.createdAt}</small>
-                  </div>
-                  <div className="try-on-actions">
-                    <button className="secondary-button" type="button">
-                      <Eye aria-hidden="true" />
-                      <span>Xem</span>
-                    </button>
-                    <button className="primary-button" type="button">
-                      <Check aria-hidden="true" />
-                      <span>Duyệt</span>
-                    </button>
-                    <button className="secondary-button" type="button">
-                      <Download aria-hidden="true" />
-                      <span>Tải</span>
-                    </button>
-                  </div>
-                </article>
-              ))}
+              {tryOnRequests.length > 0 ? (
+                tryOnRequests.map((request) => (
+                  <article className="try-on-row" key={request.id}>
+                    <div className="try-on-avatar">
+                      {request.inputImageUrl ? (
+                        <img alt="" src={request.inputImageUrl} />
+                      ) : (
+                        <MagicWand aria-hidden="true" weight="duotone" />
+                      )}
+                    </div>
+                    <div className="try-on-main">
+                      <div className="try-on-title-row">
+                        <h3>{request.productName}</h3>
+                        <span
+                          className="admin-product-tag"
+                          data-tone={getTryOnStatusTone(request.status)}
+                        >
+                          {tryOnStatusLabel[request.status]}
+                        </span>
+                      </div>
+                      <p>
+                        {request.customerName} · {request.customerPhone} ·{" "}
+                        {contactChannelLabel[request.customerContactChannel]}
+                      </p>
+                      <small>
+                        {formatAdminDate(request.createdAt)}
+                        {request.expiresAt
+                          ? ` · Hết hạn ${formatAdminDate(request.expiresAt)}`
+                          : ""}
+                      </small>
+                    </div>
+                    <div className="try-on-actions">
+                      {request.inputImageUrl ? (
+                        <>
+                          <a
+                            className="secondary-button"
+                            href={request.inputImageUrl}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            <Eye aria-hidden="true" />
+                            <span>Xem</span>
+                          </a>
+                          <a
+                            className="secondary-button"
+                            download
+                            href={request.inputImageUrl}
+                          >
+                            <Download aria-hidden="true" />
+                            <span>Tải</span>
+                          </a>
+                        </>
+                      ) : (
+                        <button className="secondary-button" disabled type="button">
+                          <Eye aria-hidden="true" />
+                          <span>Xem</span>
+                        </button>
+                      )}
+                      <button
+                        className="primary-button"
+                        disabled={
+                          request.status !== "pending" ||
+                          tryOnActionId === request.id
+                        }
+                        onClick={() => void handleTryOnApprove(request)}
+                        type="button"
+                      >
+                        <Check aria-hidden="true" />
+                        <span>
+                          {tryOnActionId === request.id ? "Đang duyệt" : "Duyệt"}
+                        </span>
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <AdminEmptyState
+                  icon={MagicWand}
+                  title="Chưa có yêu cầu thử đồ"
+                  description="Yêu cầu mới sẽ xuất hiện ở đây sau khi khách gửi ảnh từ trang sản phẩm."
+                />
+              )}
             </div>
           </section>
 
@@ -1077,6 +1208,31 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       );
     } finally {
       setMediaActionId("");
+    }
+  }
+
+  async function handleTryOnApprove(request: TryOnRequest) {
+    setTryOnError("");
+    setTryOnActionId(request.id);
+
+    try {
+      const updatedRequest = await updateAdminTryOnRequestStatus(
+        request.id,
+        "approved",
+      );
+      setTryOnRequests((current) =>
+        current.map((item) =>
+          item.id === updatedRequest.id ? updatedRequest : item,
+        ),
+      );
+    } catch (error) {
+      setTryOnError(
+        error instanceof Error
+          ? error.message
+          : "Không thể duyệt yêu cầu thử đồ.",
+      );
+    } finally {
+      setTryOnActionId("");
     }
   }
 
@@ -1513,6 +1669,41 @@ function getProductManagementStatus(product: Product) {
   }
 
   return { label: "Đang bán", tone: "success" };
+}
+
+function getTryOnStatusTone(status: TryOnStatus) {
+  switch (status) {
+    case "approved":
+    case "completed":
+      return "success";
+    case "rejected":
+    case "failed":
+      return "danger";
+    case "processing":
+      return "featured";
+    default:
+      return "muted";
+  }
+}
+
+function formatAdminDate(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  const normalizedValue = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+  const date = new Date(normalizedValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("vi-VN", {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "2-digit",
+  });
 }
 
 function matchesProductVisibilityFilter(

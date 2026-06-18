@@ -114,6 +114,10 @@ The catalog now uses D1 through these Worker routes:
 - `PATCH /api/admin/product-images/:id`: select the primary image.
 - `DELETE /api/admin/product-images/:id`: delete an image from D1 and R2.
 - `GET /api/product-images/:id`: serve a cached public product image from R2.
+- `POST /api/try-on-requests`: create a pending try-on request with a private customer image.
+- `GET /api/admin/try-on-requests`: list try-on requests for admin review.
+- `PATCH /api/admin/try-on-requests/:id`: update a try-on request status.
+- `GET /api/admin/try-on-requests/:id/image`: serve the private input image to authenticated admin users.
 
 Admin endpoints require the signed admin session cookie.
 

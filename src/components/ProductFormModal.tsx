@@ -17,6 +17,15 @@ import {
   MAX_SOURCE_IMAGE_BYTES,
   optimizeImageForUpload,
 } from "../utils/optimizeImage";
+import {
+  catalogAgeMonthsRange,
+  catalogAgeYearsRange,
+  catalogWeightKgRange,
+  formatAgeRangeLabel,
+  formatWeightRangeLabel,
+  getProductAgeRange,
+  getProductWeightRange,
+} from "../utils/productRange";
 
 type ProductFormModalProps = {
   product: Product | null;
@@ -95,9 +104,27 @@ function ProductFormModal({
     }
 
     try {
+      const fitRangeError = validateFitRanges(form);
+
+      if (fitRangeError) {
+        setSubmitError(fitRangeError);
+        return;
+      }
+
+      const ageRange = {
+        min: Number(form.ageMinMonths),
+        max: Number(form.ageMaxMonths),
+      };
+      const weightRange = {
+        min: Number(form.weightMinKg),
+        max: Number(form.weightMaxKg),
+      };
+
       await onSave(
         {
           ...form,
+          ageGroup: formatAgeRangeLabel(ageRange),
+          weightRange: formatWeightRangeLabel(weightRange),
           variants: form.variants.filter((variant) => variant.sizeLabel.trim()),
         },
         pendingImages.map((image) => image.file),
@@ -184,33 +211,83 @@ function ProductFormModal({
               </select>
             </label>
 
-            <label className="admin-form-field">
-              <span>Độ tuổi</span>
-              <input
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    ageGroup: event.target.value,
-                  }))
-                }
-                placeholder="Ví dụ: 1-2 tuổi"
-                value={form.ageGroup}
-              />
-            </label>
+            <fieldset className="admin-form-range-field">
+              <legend>Độ tuổi</legend>
+              <div className="admin-range-inputs">
+                <label className="admin-form-field">
+                  <span>Từ tuổi</span>
+                  <input
+                    max={catalogAgeYearsRange.max}
+                    min={catalogAgeYearsRange.min}
+                    onChange={(event) =>
+                      updateNumberField(
+                        "ageMinMonths",
+                        event.target.value,
+                        12,
+                      )
+                    }
+                    required
+                    step={1}
+                    type="number"
+                    value={formatAgeInputValue(form.ageMinMonths)}
+                  />
+                </label>
+                <label className="admin-form-field">
+                  <span>Đến tuổi</span>
+                  <input
+                    max={catalogAgeYearsRange.max}
+                    min={catalogAgeYearsRange.min}
+                    onChange={(event) =>
+                      updateNumberField(
+                        "ageMaxMonths",
+                        event.target.value,
+                        12,
+                      )
+                    }
+                    required
+                    step={1}
+                    type="number"
+                    value={formatAgeInputValue(form.ageMaxMonths)}
+                  />
+                </label>
+              </div>
+              <p>Khoảng nhận: 1-18 tuổi</p>
+            </fieldset>
 
-            <label className="admin-form-field">
-              <span>Cân nặng</span>
-              <input
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    weightRange: event.target.value,
-                  }))
-                }
-                placeholder="Ví dụ: 9-13kg"
-                value={form.weightRange}
-              />
-            </label>
+            <fieldset className="admin-form-range-field">
+              <legend>Cân nặng</legend>
+              <div className="admin-range-inputs">
+                <label className="admin-form-field">
+                  <span>Từ kg</span>
+                  <input
+                    max={catalogWeightKgRange.max}
+                    min={catalogWeightKgRange.min}
+                    onChange={(event) =>
+                      updateNumberField("weightMinKg", event.target.value)
+                    }
+                    required
+                    step={1}
+                    type="number"
+                    value={formatNumberInputValue(form.weightMinKg)}
+                  />
+                </label>
+                <label className="admin-form-field">
+                  <span>Đến kg</span>
+                  <input
+                    max={catalogWeightKgRange.max}
+                    min={catalogWeightKgRange.min}
+                    onChange={(event) =>
+                      updateNumberField("weightMaxKg", event.target.value)
+                    }
+                    required
+                    step={1}
+                    type="number"
+                    value={formatNumberInputValue(form.weightMaxKg)}
+                  />
+                </label>
+              </div>
+              <p>Khoảng nhận: 5-40kg</p>
+            </fieldset>
 
             <label className="admin-form-field">
               <span>Tình trạng chung</span>
@@ -514,6 +591,23 @@ function ProductFormModal({
     }));
   }
 
+  function updateNumberField(
+    field:
+      | "ageMinMonths"
+      | "ageMaxMonths"
+      | "weightMinKg"
+      | "weightMaxKg",
+    rawValue: string,
+    multiplier = 1,
+  ) {
+    const numericValue = readNumberInput(rawValue);
+
+    setForm((current) => ({
+      ...current,
+      [field]: numericValue === null ? null : numericValue * multiplier,
+    }));
+  }
+
   async function handleImageSelection(event: ChangeEvent<HTMLInputElement>) {
     const availableSlots =
       maxImageCount - currentImages.length - pendingImages.length;
@@ -632,15 +726,102 @@ function revokePreviews(images: PendingImage[]) {
   }
 }
 
+function validateFitRanges(form: ProductInput) {
+  const ageMinYears = getAgeYearsValue(form.ageMinMonths);
+  const ageMaxYears = getAgeYearsValue(form.ageMaxMonths);
+
+  if (ageMinYears === null || ageMaxYears === null) {
+    return "Hãy nhập đủ khoảng độ tuổi.";
+  }
+
+  if (!Number.isInteger(ageMinYears) || !Number.isInteger(ageMaxYears)) {
+    return "Độ tuổi nên nhập theo số tuổi nguyên.";
+  }
+
+  if (
+    ageMinYears < catalogAgeYearsRange.min ||
+    ageMaxYears > catalogAgeYearsRange.max
+  ) {
+    return "Độ tuổi phải nằm trong khoảng 1-18 tuổi.";
+  }
+
+  if (ageMinYears > ageMaxYears) {
+    return "Độ tuổi bắt đầu phải nhỏ hơn hoặc bằng độ tuổi kết thúc.";
+  }
+
+  if (
+    !isValidNumber(form.weightMinKg) ||
+    !isValidNumber(form.weightMaxKg)
+  ) {
+    return "Hãy nhập đủ khoảng cân nặng.";
+  }
+
+  if (
+    Number(form.weightMinKg) < catalogWeightKgRange.min ||
+    Number(form.weightMaxKg) > catalogWeightKgRange.max
+  ) {
+    return "Cân nặng phải nằm trong khoảng 5-40kg.";
+  }
+
+  if (Number(form.weightMinKg) > Number(form.weightMaxKg)) {
+    return "Cân nặng bắt đầu phải nhỏ hơn hoặc bằng cân nặng kết thúc.";
+  }
+
+  return "";
+}
+
+function readNumberInput(value: string) {
+  if (!value.trim()) {
+    return null;
+  }
+
+  const numericValue = Number(value.replace(",", "."));
+
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function getAgeYearsValue(value: number | null) {
+  return isValidNumber(value) ? value / 12 : null;
+}
+
+function isValidNumber(value: number | null): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatAgeInputValue(value: number | null) {
+  const ageYears = getAgeYearsValue(value);
+
+  return ageYears === null ? "" : formatNumberInputValue(ageYears);
+}
+
+function formatNumberInputValue(value: number | null) {
+  if (!isValidNumber(value)) {
+    return "";
+  }
+
+  return value.toString();
+}
+
 function createInitialForm(product: Product | null): ProductInput {
   if (product) {
+    const ageRange = getProductAgeRange(product);
+    const weightRange = getProductWeightRange(product);
+
     return {
       name: product.name,
       description: product.description,
       category: product.category,
       gender: product.gender,
-      ageGroup: product.ageGroup,
-      weightRange: product.weightRange,
+      ageGroup:
+        product.ageGroup ||
+        formatAgeRangeLabel(ageRange || catalogAgeMonthsRange),
+      ageMinMonths: ageRange?.min ?? catalogAgeMonthsRange.min,
+      ageMaxMonths: ageRange?.max ?? catalogAgeMonthsRange.max,
+      weightRange:
+        product.weightRange ||
+        formatWeightRangeLabel(weightRange || catalogWeightKgRange),
+      weightMinKg: weightRange?.min ?? catalogWeightKgRange.min,
+      weightMaxKg: weightRange?.max ?? catalogWeightKgRange.max,
       stockStatus: product.stockStatus,
       isFeatured: product.isFeatured,
       isVisible: product.isVisible,
@@ -657,8 +838,12 @@ function createInitialForm(product: Product | null): ProductInput {
     description: "",
     category: "Bộ đồ",
     gender: "unisex",
-    ageGroup: "",
-    weightRange: "",
+    ageGroup: formatAgeRangeLabel(catalogAgeMonthsRange),
+    ageMinMonths: catalogAgeMonthsRange.min,
+    ageMaxMonths: catalogAgeMonthsRange.max,
+    weightRange: formatWeightRangeLabel(catalogWeightKgRange),
+    weightMinKg: catalogWeightKgRange.min,
+    weightMaxKg: catalogWeightKgRange.max,
     stockStatus: "in_stock",
     isFeatured: false,
     isVisible: true,
