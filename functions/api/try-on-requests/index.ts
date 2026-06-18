@@ -7,7 +7,11 @@ import {
 export const onRequestPost: PagesFunction<TryOnRequestsEnv> = async (context) => {
   try {
     const formData = await context.request.formData();
-    const request = await createTryOnRequest(context.env, formData);
+    const request = await createTryOnRequest(
+      context.env,
+      formData,
+      context.request,
+    );
 
     return Response.json({ request }, { status: 201 });
   } catch (error) {

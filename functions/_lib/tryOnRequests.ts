@@ -2,6 +2,8 @@ import { getProduct, type ProductsEnv } from "./products";
 
 const MAX_TRY_ON_IMAGE_SIZE = 5 * 1024 * 1024;
 const TRY_ON_REQUEST_TTL_HOURS = 24;
+const DAILY_IP_REQUEST_LIMIT = 12;
+const DAILY_PHONE_REQUEST_LIMIT = 4;
 const ALLOWED_IMAGE_TYPES = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
@@ -10,6 +12,7 @@ const ALLOWED_IMAGE_TYPES = new Map([
 
 type TryOnEnv = ProductsEnv & {
   TRY_ON_IMAGES: R2Bucket;
+  TURNSTILE_SECRET_KEY?: string;
 };
 
 type ContactChannel = "zalo" | "facebook" | "phone";
@@ -38,15 +41,26 @@ type TryOnRequestRow = {
   expires_at: string | null;
 };
 
+type ExpiredTryOnImageRow = {
+  id: string;
+  input_image_key: string | null;
+  result_image_key: string | null;
+};
+
 export type TryOnRequestsEnv = TryOnEnv;
 
-export async function createTryOnRequest(env: TryOnRequestsEnv, formData: FormData) {
+export async function createTryOnRequest(
+  env: TryOnRequestsEnv,
+  formData: FormData,
+  request: Request,
+) {
   const productId = cleanText(formData.get("productId"));
   const customerName = cleanText(formData.get("customerName")).slice(0, 120);
   const customerPhone = normalizePhone(cleanText(formData.get("customerPhone")));
   const customerContactChannel = normalizeContactChannel(
     cleanText(formData.get("customerContactChannel")),
   );
+  const turnstileToken = cleanText(formData.get("turnstileToken"));
   const image = formData.get("image");
 
   if (!productId) {
@@ -66,6 +80,8 @@ export async function createTryOnRequest(env: TryOnRequestsEnv, formData: FormDa
   }
 
   validateTryOnImage(image);
+  await verifyTurnstileIfConfigured(env, turnstileToken, request);
+  await enforceTryOnRateLimit(env.DB, request, customerPhone);
 
   const product = await getProduct(env.DB, productId);
 
@@ -115,13 +131,13 @@ export async function createTryOnRequest(env: TryOnRequestsEnv, formData: FormDa
     throw error;
   }
 
-  const request = await getTryOnRequest(env.DB, id);
+  const createdRequest = await getTryOnRequest(env.DB, id);
 
-  if (!request) {
+  if (!createdRequest) {
     throw new TryOnRequestError("Không thể tạo yêu cầu thử đồ.", 500);
   }
 
-  return request;
+  return createdRequest;
 }
 
 export async function listTryOnRequests(env: TryOnRequestsEnv) {
@@ -137,6 +153,54 @@ export async function listTryOnRequests(env: TryOnRequestsEnv) {
   ).all<TryOnRequestRow>();
 
   return (result.results || []).map(mapTryOnRequest);
+}
+
+export async function cleanupExpiredTryOnRequests(env: TryOnRequestsEnv) {
+  const result = await env.DB.prepare(
+    `SELECT id, input_image_key, result_image_key
+     FROM try_on_requests
+     WHERE expires_at IS NOT NULL
+       AND expires_at <= datetime('now')
+       AND (input_image_key IS NOT NULL OR result_image_key IS NOT NULL)
+     LIMIT 100`,
+  ).all<ExpiredTryOnImageRow>();
+  const expiredRows = result.results || [];
+  const imageKeys = [
+    ...new Set(
+      expiredRows.flatMap((row) =>
+        [row.input_image_key, row.result_image_key].filter(
+          (key): key is string => Boolean(key),
+        ),
+      ),
+    ),
+  ];
+
+  if (imageKeys.length > 0) {
+    await env.TRY_ON_IMAGES.delete(imageKeys);
+  }
+
+  const requestIds = expiredRows.map((row) => row.id);
+
+  if (requestIds.length > 0) {
+    await env.DB.prepare(
+      `UPDATE try_on_requests
+       SET input_image_key = NULL,
+           result_image_key = NULL,
+           admin_note = COALESCE(admin_note, 'Ảnh đã được tự động dọn sau khi hết hạn.')
+       WHERE id IN (${requestIds.map(() => "?").join(", ")})`,
+    )
+      .bind(...requestIds)
+      .run();
+  }
+
+  await env.DB.prepare(
+    "DELETE FROM try_on_request_limits WHERE window_date < date('now', '-7 days')",
+  ).run();
+
+  return {
+    deletedImageCount: imageKeys.length,
+    expiredRequestCount: requestIds.length,
+  };
 }
 
 export async function getTryOnRequest(db: D1Database, id: string) {
@@ -251,6 +315,120 @@ function validateTryOnImage(file: File) {
   if (file.size === 0 || file.size > MAX_TRY_ON_IMAGE_SIZE) {
     throw new TryOnRequestError("Ảnh thử đồ phải nhỏ hơn hoặc bằng 5 MB.", 400);
   }
+}
+
+async function verifyTurnstileIfConfigured(
+  env: TryOnRequestsEnv,
+  token: string,
+  request: Request,
+) {
+  if (!env.TURNSTILE_SECRET_KEY) {
+    return;
+  }
+
+  if (!token) {
+    throw new TryOnRequestError("Vui lòng xác minh chống spam.", 400);
+  }
+
+  const body = new FormData();
+  body.append("secret", env.TURNSTILE_SECRET_KEY);
+  body.append("response", token);
+
+  const ipAddress = getClientIp(request);
+
+  if (ipAddress) {
+    body.append("remoteip", ipAddress);
+  }
+
+  const response = await fetch(
+    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+    {
+      method: "POST",
+      body,
+    },
+  );
+  const result = (await response.json()) as { success?: boolean };
+
+  if (!result.success) {
+    throw new TryOnRequestError("Xác minh chống spam không thành công.", 400);
+  }
+}
+
+async function enforceTryOnRateLimit(
+  db: D1Database,
+  request: Request,
+  customerPhone: string,
+) {
+  const ipAddress = getClientIp(request);
+  const windowDate = new Date().toISOString().slice(0, 10);
+  const keys = [
+    ipAddress
+      ? {
+          id: `ip:${await sha256Hex(ipAddress)}`,
+          limit: DAILY_IP_REQUEST_LIMIT,
+          label: "thiết bị/mạng này",
+        }
+      : null,
+    {
+      id: `phone:${await sha256Hex(customerPhone)}`,
+      limit: DAILY_PHONE_REQUEST_LIMIT,
+      label: "số điện thoại này",
+    },
+  ].filter((key): key is { id: string; label: string; limit: number } =>
+    Boolean(key),
+  );
+
+  for (const key of keys) {
+    const existing = await db
+      .prepare(
+        "SELECT request_count FROM try_on_request_limits WHERE id = ? AND window_date = ? LIMIT 1",
+      )
+      .bind(key.id, windowDate)
+      .first<{ request_count: number }>();
+
+    if (Number(existing?.request_count || 0) >= key.limit) {
+      throw new TryOnRequestError(
+        `Hôm nay ${key.label} đã gửi quá nhiều yêu cầu thử đồ.`,
+        429,
+      );
+    }
+  }
+
+  for (const key of keys) {
+    await db
+      .prepare(
+        `INSERT INTO try_on_request_limits (id, request_count, window_date)
+         VALUES (?, 1, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           request_count = CASE
+             WHEN try_on_request_limits.window_date = excluded.window_date
+               THEN try_on_request_limits.request_count + 1
+             ELSE 1
+           END,
+           window_date = excluded.window_date,
+           updated_at = datetime('now')`,
+      )
+      .bind(key.id, windowDate)
+      .run();
+  }
+}
+
+function getClientIp(request: Request) {
+  return (
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    ""
+  );
+}
+
+async function sha256Hex(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+
+  return [...new Uint8Array(hashBuffer)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
 }
 
 function normalizePhone(value: string) {

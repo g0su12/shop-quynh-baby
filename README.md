@@ -9,7 +9,7 @@ Catalog website for a small offline children's fashion shop.
 - Cloudflare Worker generated from the file-based `functions/` API routes.
 - Cloudflare D1 for catalog data.
 - Cloudflare R2 for product and try-on images.
-- Cloudflare Turnstile for anti-spam forms later.
+- Cloudflare Turnstile for optional anti-spam validation on public forms.
 
 ## Local Setup
 
@@ -49,6 +49,10 @@ Set these Cloudflare Worker secrets:
 
 - `ADMIN_PASSWORD_HASH`: the generated `pbkdf2_sha256$...` value.
 - `ADMIN_SESSION_SECRET`: a long random secret used to sign admin sessions.
+- `TURNSTILE_SECRET_KEY`: optional, enables Turnstile validation for public try-on uploads.
+
+If Turnstile is enabled, also set `VITE_TURNSTILE_SITE_KEY` for the frontend
+build environment.
 
 For temporary production debugging, set `ADMIN_AUTH_DEBUG=1` on the Worker.
 The login route writes structured `[admin-auth]` logs with only hash metadata
@@ -118,6 +122,7 @@ The catalog now uses D1 through these Worker routes:
 - `GET /api/admin/try-on-requests`: list try-on requests for admin review.
 - `PATCH /api/admin/try-on-requests/:id`: update a try-on request status.
 - `GET /api/admin/try-on-requests/:id/image`: serve the private input image to authenticated admin users.
+- `POST /api/admin/try-on-requests/cleanup`: delete expired private try-on images from R2 and clear their D1 keys.
 
 Admin endpoints require the signed admin session cookie.
 

@@ -948,6 +948,10 @@ h3 {
   color: var(--muted);
 }
 
+.try-on-turnstile {
+  min-height: 65px;
+}
+
 .try-on-message[data-tone="success"] {
   color: #157347;
 }
@@ -1342,6 +1346,14 @@ h3 {
   gap: 16px;
   justify-content: space-between;
   padding: 18px;
+}
+
+.admin-panel-heading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .admin-panel-heading h2 {

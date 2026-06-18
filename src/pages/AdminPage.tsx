@@ -42,6 +42,7 @@ import {
   uploadProductImages,
 } from "../api/products";
 import {
+  cleanupExpiredTryOnRequests,
   fetchAdminTryOnRequests,
   updateAdminTryOnRequestStatus,
 } from "../api/tryOnRequests";
@@ -260,6 +261,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [tryOnRequests, setTryOnRequests] =
     useState<TryOnRequest[]>(mockTryOnRequests);
   const [tryOnError, setTryOnError] = useState("");
+  const [tryOnCleanupMessage, setTryOnCleanupMessage] = useState("");
   const [isLoadingTryOnRequests, setIsLoadingTryOnRequests] = useState(true);
   const [tryOnActionId, setTryOnActionId] = useState("");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
@@ -806,8 +808,26 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                 <p className="eyebrow">Try-on</p>
                 <h2>Yêu cầu thử cho bé</h2>
               </div>
-              <span className="result-count">{tryOnRequests.length} yêu cầu</span>
+              <div className="admin-panel-heading-actions">
+                <span className="result-count">{tryOnRequests.length} yêu cầu</span>
+                <button
+                  className="secondary-button"
+                  disabled={tryOnActionId === "cleanup"}
+                  onClick={() => void handleTryOnCleanup()}
+                  type="button"
+                >
+                  <Trash2 aria-hidden="true" />
+                  <span>
+                    {tryOnActionId === "cleanup" ? "Đang dọn" : "Dọn ảnh hết hạn"}
+                  </span>
+                </button>
+              </div>
             </div>
+            {tryOnCleanupMessage ? (
+              <div className="admin-data-notice" role="status">
+                {tryOnCleanupMessage}
+              </div>
+            ) : null}
             {tryOnError ? (
               <div className="admin-data-notice" role="status">
                 <strong>Đang hiển thị dữ liệu mẫu.</strong>
@@ -1213,6 +1233,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
   async function handleTryOnApprove(request: TryOnRequest) {
     setTryOnError("");
+    setTryOnCleanupMessage("");
     setTryOnActionId(request.id);
 
     try {
@@ -1230,6 +1251,29 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
         error instanceof Error
           ? error.message
           : "Không thể duyệt yêu cầu thử đồ.",
+      );
+    } finally {
+      setTryOnActionId("");
+    }
+  }
+
+  async function handleTryOnCleanup() {
+    setTryOnError("");
+    setTryOnCleanupMessage("");
+    setTryOnActionId("cleanup");
+
+    try {
+      const result = await cleanupExpiredTryOnRequests();
+      const nextRequests = await fetchAdminTryOnRequests();
+      setTryOnRequests(nextRequests);
+      setTryOnCleanupMessage(
+        `Đã dọn ${result.deletedImageCount} ảnh từ ${result.expiredRequestCount} yêu cầu hết hạn.`,
+      );
+    } catch (error) {
+      setTryOnError(
+        error instanceof Error
+          ? error.message
+          : "Không thể dọn ảnh thử đồ hết hạn.",
       );
     } finally {
       setTryOnActionId("");

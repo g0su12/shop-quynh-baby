@@ -56,6 +56,24 @@ const facebookUrl =
   "https://www.facebook.com/nguyen.nhu.quynh.506701";
 const mapsUrl =
   import.meta.env.VITE_SHOP_MAPS_URL || "https://maps.app.goo.gl/RebED1MNfFsy4BsG9";
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: HTMLElement,
+        options: {
+          callback: (token: string) => void;
+          "error-callback": () => void;
+          sitekey: string;
+          theme: "light";
+        },
+      ) => string;
+      reset: (widgetId?: string) => void;
+    };
+  }
+}
 
 const categoryHighlights = [
   {
@@ -534,10 +552,13 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
     useState<ContactChannel>("zalo");
   const [tryOnImage, setTryOnImage] = useState<File | null>(null);
   const [tryOnImageSummary, setTryOnImageSummary] = useState("");
+  const [tryOnTurnstileToken, setTryOnTurnstileToken] = useState("");
   const [tryOnMessage, setTryOnMessage] = useState("");
   const [tryOnError, setTryOnError] = useState("");
   const [isPreparingTryOnImage, setIsPreparingTryOnImage] = useState(false);
   const [isSendingTryOnRequest, setIsSendingTryOnRequest] = useState(false);
+  const turnstileContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetIdRef = useRef("");
   const tryOnImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -619,6 +640,66 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
     );
   }, [images]);
 
+  useEffect(() => {
+    if (!turnstileSiteKey || !turnstileContainerRef.current) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    function renderTurnstileWidget() {
+      if (
+        isCancelled ||
+        !window.turnstile ||
+        !turnstileContainerRef.current ||
+        turnstileWidgetIdRef.current
+      ) {
+        return;
+      }
+
+      turnstileWidgetIdRef.current = window.turnstile.render(
+        turnstileContainerRef.current,
+        {
+          sitekey: turnstileSiteKey,
+          theme: "light",
+          callback: setTryOnTurnstileToken,
+          "error-callback": () => setTryOnTurnstileToken(""),
+        },
+      );
+    }
+
+    if (window.turnstile) {
+      renderTurnstileWidget();
+      return;
+    }
+
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]',
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener("load", renderTurnstileWidget, {
+        once: true,
+      });
+      return () => {
+        isCancelled = true;
+        existingScript.removeEventListener("load", renderTurnstileWidget);
+      };
+    }
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.addEventListener("load", renderTurnstileWidget, { once: true });
+    document.head.appendChild(script);
+
+    return () => {
+      isCancelled = true;
+      script.removeEventListener("load", renderTurnstileWidget);
+    };
+  }, [product?.id]);
+
   const canSubmitTryOnRequest = product?.stockStatus !== "out_of_stock";
 
   async function handleTryOnImageChange(event: ChangeEvent<HTMLInputElement>) {
@@ -674,6 +755,11 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
       return;
     }
 
+    if (turnstileSiteKey && !tryOnTurnstileToken) {
+      setTryOnError("Vui lòng xác minh chống spam trước khi gửi.");
+      return;
+    }
+
     setIsSendingTryOnRequest(true);
 
     try {
@@ -683,12 +769,15 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
         customerPhone: tryOnCustomerPhone,
         customerContactChannel: tryOnContactChannel,
         imageFile: tryOnImage,
+        turnstileToken: tryOnTurnstileToken,
       });
       setTryOnCustomerName("");
       setTryOnCustomerPhone("");
       setTryOnContactChannel("zalo");
       setTryOnImage(null);
       setTryOnImageSummary("");
+      setTryOnTurnstileToken("");
+      window.turnstile?.reset(turnstileWidgetIdRef.current);
       if (tryOnImageInputRef.current) {
         tryOnImageInputRef.current.value = "";
       }
@@ -942,6 +1031,13 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
                 <p className="try-on-privacy-note">
                   Ảnh chỉ dùng để shop tư vấn mẫu này và tự hết hạn sau 24 giờ.
                 </p>
+
+                {turnstileSiteKey ? (
+                  <div
+                    className="try-on-turnstile"
+                    ref={turnstileContainerRef}
+                  />
+                ) : null}
 
                 {tryOnError ? (
                   <p className="try-on-message" data-tone="error" role="alert">

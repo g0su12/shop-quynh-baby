@@ -12,12 +12,18 @@ type TryOnRequestListResponse = {
   requests: TryOnRequest[];
 };
 
+type TryOnCleanupResponse = {
+  deletedImageCount: number;
+  expiredRequestCount: number;
+};
+
 export type CreateTryOnRequestInput = {
   productId: string;
   customerName: string;
   customerPhone: string;
   customerContactChannel: ContactChannel;
   imageFile: File;
+  turnstileToken: string;
 };
 
 export async function createTryOnRequest(input: CreateTryOnRequestInput) {
@@ -26,6 +32,7 @@ export async function createTryOnRequest(input: CreateTryOnRequestInput) {
   formData.append("customerName", input.customerName);
   formData.append("customerPhone", input.customerPhone);
   formData.append("customerContactChannel", input.customerContactChannel);
+  formData.append("turnstileToken", input.turnstileToken);
   formData.append("image", input.imageFile);
 
   const response = await requestJson<TryOnRequestResponse>("/api/try-on-requests", {
@@ -34,6 +41,12 @@ export async function createTryOnRequest(input: CreateTryOnRequestInput) {
   });
 
   return response.request;
+}
+
+export async function cleanupExpiredTryOnRequests() {
+  return requestJson<TryOnCleanupResponse>("/api/admin/try-on-requests/cleanup", {
+    method: "POST",
+  });
 }
 
 export async function fetchAdminTryOnRequests() {
