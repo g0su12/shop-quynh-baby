@@ -45,6 +45,7 @@ import {
 import {
   cleanupExpiredTryOnRequests,
   fetchAdminTryOnRequests,
+  generateAdminTryOnResultImage,
   updateAdminTryOnRequestStatus,
   uploadAdminTryOnResultImage,
 } from "../api/tryOnRequests";
@@ -921,6 +922,8 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                   const isSavingNote = tryOnActionId === `note:${request.id}`;
                   const isUploadingResult =
                     tryOnActionId === `result:${request.id}`;
+                  const isGeneratingAi =
+                    tryOnActionId === `ai:${request.id}`;
 
                   return (
                   <article className="try-on-row" key={request.id}>
@@ -981,7 +984,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                       <label className="try-on-status-control">
                         <span>Trạng thái</span>
                         <select
-                          disabled={isSavingStatus}
+                          disabled={isSavingStatus || isGeneratingAi}
                           onChange={(event) =>
                             void handleTryOnStatusChange(
                               request,
@@ -1045,9 +1048,22 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                             </a>
                           </>
                         ) : null}
+                        <button
+                          className="secondary-button try-on-ai-button"
+                          disabled={
+                            isGeneratingAi ||
+                            !request.inputImageUrl ||
+                            request.status === "processing"
+                          }
+                          onClick={() => void handleTryOnGenerateAi(request)}
+                          type="button"
+                        >
+                          <MagicWand aria-hidden="true" weight="duotone" />
+                          <span>{isGeneratingAi ? "Đang tạo" : "Tạo AI"}</span>
+                        </button>
                         <label
                           className="secondary-button try-on-upload-result"
-                          data-disabled={isUploadingResult}
+                          data-disabled={isUploadingResult || isGeneratingAi}
                         >
                           <Upload aria-hidden="true" />
                           <span>
@@ -1059,7 +1075,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                           </span>
                           <input
                             accept="image/jpeg,image/png,image/webp"
-                            disabled={isUploadingResult}
+                            disabled={isUploadingResult || isGeneratingAi}
                             onChange={(event) =>
                               void handleTryOnResultUpload(request, event)
                             }
@@ -1459,6 +1475,43 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
           ? error.message
           : "Không thể lưu ghi chú thử đồ.",
       );
+    } finally {
+      setTryOnActionId("");
+    }
+  }
+
+  async function handleTryOnGenerateAi(request: TryOnRequest) {
+    setTryOnError("");
+    setTryOnCleanupMessage("");
+    setTryOnActionId(`ai:${request.id}`);
+    setTryOnRequests((current) =>
+      current.map((item) =>
+        item.id === request.id ? { ...item, status: "processing" } : item,
+      ),
+    );
+
+    try {
+      const updatedRequest = await generateAdminTryOnResultImage(request.id);
+      applyUpdatedTryOnRequest(updatedRequest);
+      setTryOnCleanupMessage("AI đã tạo ảnh kết quả cho yêu cầu thử đồ.");
+    } catch (error) {
+      setTryOnError(
+        error instanceof Error
+          ? error.message
+          : "Không thể tạo ảnh thử đồ bằng AI.",
+      );
+
+      try {
+        const nextRequests = await fetchAdminTryOnRequests();
+        setTryOnRequests(nextRequests);
+        setTryOnNoteDrafts(getTryOnNoteDrafts(nextRequests));
+      } catch {
+        setTryOnRequests((current) =>
+          current.map((item) =>
+            item.id === request.id ? { ...item, status: request.status } : item,
+          ),
+        );
+      }
     } finally {
       setTryOnActionId("");
     }

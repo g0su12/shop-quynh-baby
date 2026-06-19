@@ -75,6 +75,17 @@ export async function updateAdminTryOnRequestStatus(
   return response.request;
 }
 
+export async function generateAdminTryOnResultImage(id: string) {
+  const response = await requestJson<TryOnRequestResponse>(
+    `/api/admin/try-on-requests/${id}/generate`,
+    {
+      method: "POST",
+    },
+  );
+
+  return response.request;
+}
+
 export async function uploadAdminTryOnResultImage(id: string, imageFile: File) {
   const formData = new FormData();
   formData.append("image", imageFile);

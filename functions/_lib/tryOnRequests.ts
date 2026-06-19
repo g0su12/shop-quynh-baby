@@ -4,6 +4,9 @@ const MAX_TRY_ON_IMAGE_SIZE = 5 * 1024 * 1024;
 const TRY_ON_REQUEST_TTL_HOURS = 24;
 const DAILY_IP_REQUEST_LIMIT = 12;
 const DAILY_PHONE_REQUEST_LIMIT = 4;
+const DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-1";
+const DEFAULT_OPENAI_IMAGE_SIZE = "1024x1536";
+const DEFAULT_OPENAI_IMAGE_QUALITY = "medium";
 const ALLOWED_IMAGE_TYPES = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
@@ -11,7 +14,12 @@ const ALLOWED_IMAGE_TYPES = new Map([
 ]);
 
 type TryOnEnv = ProductsEnv & {
+  PRODUCT_IMAGES: R2Bucket;
   TRY_ON_IMAGES: R2Bucket;
+  OPENAI_API_KEY?: string;
+  OPENAI_IMAGE_MODEL?: string;
+  OPENAI_IMAGE_SIZE?: string;
+  OPENAI_IMAGE_QUALITY?: string;
   TURNSTILE_SECRET_KEY?: string;
 };
 
@@ -46,6 +54,34 @@ type ExpiredTryOnImageRow = {
   id: string;
   input_image_key: string | null;
   result_image_key: string | null;
+};
+
+type TryOnGenerationRow = {
+  id: string;
+  product_id: string;
+  product_name: string;
+  product_description: string | null;
+  product_category: string;
+  product_age_group: string | null;
+  product_weight_range: string | null;
+  input_image_key: string | null;
+  result_image_key: string | null;
+  admin_note: string | null;
+};
+
+type ProductImageReferenceRow = {
+  object_key: string;
+};
+
+type OpenAIImageResponse = {
+  data?: Array<{
+    b64_json?: string;
+    url?: string;
+  }>;
+  error?: {
+    message?: string;
+    type?: string;
+  };
 };
 
 export type TryOnRequestsEnv = TryOnEnv;
@@ -331,6 +367,127 @@ export async function uploadTryOnRequestResultImage(
   return updatedRequest;
 }
 
+export async function generateTryOnRequestResultImage(
+  env: TryOnRequestsEnv,
+  requestId: string,
+) {
+  if (!env.OPENAI_API_KEY) {
+    throw new TryOnRequestError(
+      "Chưa cấu hình OPENAI_API_KEY cho Worker.",
+      400,
+    );
+  }
+
+  const request = await getTryOnGenerationRow(env.DB, requestId);
+
+  if (!request) {
+    throw new TryOnRequestError("Không tìm thấy yêu cầu thử đồ.", 404);
+  }
+
+  if (!request.input_image_key) {
+    throw new TryOnRequestError(
+      "Yêu cầu này không còn ảnh khách để tạo AI.",
+      400,
+    );
+  }
+
+  const productImageKey = await getPrimaryProductImageKey(
+    env.DB,
+    request.product_id,
+  );
+
+  if (!productImageKey) {
+    throw new TryOnRequestError(
+      "Sản phẩm chưa có ảnh tham chiếu để tạo AI.",
+      400,
+    );
+  }
+
+  await setTryOnRequestProcessing(env.DB, requestId);
+
+  try {
+    const [customerImage, productImage] = await Promise.all([
+      getR2ImageFile(
+        env.TRY_ON_IMAGES,
+        request.input_image_key,
+        "customer-reference",
+      ),
+      getR2ImageFile(env.PRODUCT_IMAGES, productImageKey, "product-reference"),
+    ]);
+    const prompt = buildTryOnPrompt(request);
+    const generatedImage = await requestOpenAIImageEdit(
+      env,
+      prompt,
+      customerImage,
+      productImage,
+    );
+    const objectKey = `try-on-requests/${requestId}/result-ai-${Date.now()}.png`;
+
+    await env.TRY_ON_IMAGES.put(objectKey, generatedImage, {
+      httpMetadata: {
+        contentType: "image/png",
+        cacheControl: "private, max-age=0, no-store",
+      },
+      customMetadata: {
+        productId: request.product_id,
+        requestId,
+        role: "ai-result",
+        model: getOpenAIImageModel(env),
+      },
+    });
+
+    const nextNote = appendAdminNote(
+      request.admin_note,
+      `AI đã tạo ảnh kết quả bằng ${getOpenAIImageModel(env)}.`,
+    );
+    const result = await env.DB.prepare(
+      `UPDATE try_on_requests
+       SET result_image_key = ?,
+           status = 'completed',
+           admin_note = ?,
+           processed_at = datetime('now'),
+           expires_at = datetime('now', ?)
+       WHERE id = ?`,
+    )
+      .bind(objectKey, nextNote, `+${TRY_ON_REQUEST_TTL_HOURS} hours`, requestId)
+      .run();
+
+    if (!result.meta.changes) {
+      await env.TRY_ON_IMAGES.delete(objectKey);
+      throw new TryOnRequestError("Không tìm thấy yêu cầu thử đồ.", 404);
+    }
+
+    if (
+      request.result_image_key &&
+      request.result_image_key !== objectKey
+    ) {
+      await env.TRY_ON_IMAGES.delete(request.result_image_key);
+    }
+
+    const updatedRequest = await getTryOnRequest(env.DB, requestId);
+
+    if (!updatedRequest) {
+      throw new TryOnRequestError("Không tìm thấy yêu cầu thử đồ.", 404);
+    }
+
+    return updatedRequest;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Không thể tạo ảnh AI.";
+    await markTryOnRequestFailed(
+      env.DB,
+      requestId,
+      appendAdminNote(request.admin_note, `AI lỗi: ${message}`),
+    );
+
+    if (error instanceof TryOnRequestError) {
+      throw error;
+    }
+
+    throw new TryOnRequestError(message, 502);
+  }
+}
+
 export async function getTryOnRequestInputImage(
   env: TryOnRequestsEnv,
   requestId: string,
@@ -417,6 +574,200 @@ function validateTryOnImage(file: File) {
   if (file.size === 0 || file.size > MAX_TRY_ON_IMAGE_SIZE) {
     throw new TryOnRequestError("Ảnh thử đồ phải nhỏ hơn hoặc bằng 5 MB.", 400);
   }
+}
+
+async function getTryOnGenerationRow(db: D1Database, requestId: string) {
+  return db
+    .prepare(
+      `SELECT
+        request.id,
+        request.product_id,
+        request.input_image_key,
+        request.result_image_key,
+        request.admin_note,
+        product.name AS product_name,
+        product.description AS product_description,
+        product.category AS product_category,
+        product.age_group AS product_age_group,
+        product.weight_range AS product_weight_range
+       FROM try_on_requests request
+       INNER JOIN products product ON product.id = request.product_id
+       WHERE request.id = ?
+       LIMIT 1`,
+    )
+    .bind(requestId)
+    .first<TryOnGenerationRow>();
+}
+
+async function getPrimaryProductImageKey(db: D1Database, productId: string) {
+  const image = await db
+    .prepare(
+      `SELECT object_key
+       FROM product_images
+       WHERE product_id = ?
+       ORDER BY is_primary DESC, sort_order, created_at
+       LIMIT 1`,
+    )
+    .bind(productId)
+    .first<ProductImageReferenceRow>();
+
+  return image?.object_key || "";
+}
+
+async function setTryOnRequestProcessing(db: D1Database, requestId: string) {
+  await db
+    .prepare(
+      `UPDATE try_on_requests
+       SET status = 'processing',
+           processed_at = NULL
+       WHERE id = ?`,
+    )
+    .bind(requestId)
+    .run();
+}
+
+async function markTryOnRequestFailed(
+  db: D1Database,
+  requestId: string,
+  adminNote: string,
+) {
+  await db
+    .prepare(
+      `UPDATE try_on_requests
+       SET status = 'failed',
+           admin_note = ?,
+           processed_at = datetime('now')
+       WHERE id = ?`,
+    )
+    .bind(adminNote, requestId)
+    .run();
+}
+
+async function getR2ImageFile(
+  bucket: R2Bucket,
+  objectKey: string,
+  filenamePrefix: string,
+) {
+  const object = await bucket.get(objectKey);
+
+  if (!object) {
+    throw new TryOnRequestError("Không tìm thấy ảnh tham chiếu.", 404);
+  }
+
+  const contentType =
+    object.httpMetadata?.contentType || inferImageContentType(objectKey);
+  const extension = ALLOWED_IMAGE_TYPES.get(contentType) || "png";
+  const arrayBuffer = await object.arrayBuffer();
+
+  return new File([arrayBuffer], `${filenamePrefix}.${extension}`, {
+    type: contentType,
+  });
+}
+
+async function requestOpenAIImageEdit(
+  env: TryOnRequestsEnv,
+  prompt: string,
+  customerImage: File,
+  productImage: File,
+) {
+  const body = new FormData();
+  body.append("model", getOpenAIImageModel(env));
+  body.append("prompt", prompt);
+  body.append("image[]", customerImage);
+  body.append("image[]", productImage);
+  body.append("n", "1");
+  body.append("size", env.OPENAI_IMAGE_SIZE || DEFAULT_OPENAI_IMAGE_SIZE);
+  body.append(
+    "quality",
+    env.OPENAI_IMAGE_QUALITY || DEFAULT_OPENAI_IMAGE_QUALITY,
+  );
+  body.append("output_format", "png");
+
+  const response = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body,
+  });
+  const payload = (await response.json()) as OpenAIImageResponse;
+
+  if (!response.ok) {
+    throw new Error(
+      payload.error?.message || "OpenAI không tạo được ảnh thử đồ.",
+    );
+  }
+
+  const imageBase64 = payload.data?.[0]?.b64_json;
+
+  if (!imageBase64) {
+    throw new Error("OpenAI không trả về ảnh kết quả.");
+  }
+
+  return decodeBase64ToBytes(imageBase64);
+}
+
+function getOpenAIImageModel(env: TryOnRequestsEnv) {
+  return env.OPENAI_IMAGE_MODEL || DEFAULT_OPENAI_IMAGE_MODEL;
+}
+
+function buildTryOnPrompt(request: TryOnGenerationRow) {
+  const details = [
+    `Product name: ${request.product_name}`,
+    `Category: ${request.product_category}`,
+    request.product_age_group ? `Age range: ${request.product_age_group}` : "",
+    request.product_weight_range
+      ? `Weight range: ${request.product_weight_range}`
+      : "",
+    request.product_description
+      ? `Product notes: ${request.product_description}`
+      : "",
+  ].filter(Boolean);
+
+  return [
+    "Create a respectful, child-safe virtual try-on preview for a children's clothing shop.",
+    "Use the first reference image as the customer's photo and preserve the child's face, body shape, pose, skin tone, hair, and background as much as possible.",
+    "Use the second reference image as the clothing product reference.",
+    "Show the child fully clothed wearing the referenced product. Keep the styling realistic, modest, and non-sexualized.",
+    "Do not make the child look older or younger. Do not add nudity, underwear-only styling, lingerie styling, or revealing poses.",
+    "Make the clothing fit naturally while preserving the product's key color, pattern, silhouette, and visible details.",
+    "Return one photorealistic final image suitable for private admin review.",
+    details.join("\n"),
+  ].join("\n\n");
+}
+
+function appendAdminNote(existingNote: string | null, note: string) {
+  const nextNote = [existingNote || "", note]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  return nextNote.slice(-500);
+}
+
+function inferImageContentType(objectKey: string) {
+  const extension = objectKey.split(".").pop()?.toLowerCase();
+
+  if (extension === "jpg" || extension === "jpeg") {
+    return "image/jpeg";
+  }
+
+  if (extension === "webp") {
+    return "image/webp";
+  }
+
+  return "image/png";
+}
+
+function decodeBase64ToBytes(value: string) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
 }
 
 async function verifyTurnstileIfConfigured(
