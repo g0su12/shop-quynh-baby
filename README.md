@@ -103,6 +103,27 @@ For Cloudflare Workers Builds, use:
 The build command creates both `dist` and the generated Worker entry point at
 `.wrangler/functions-build/index.js`.
 
+### GitHub Actions production deploy
+
+The workflow at `.github/workflows/deploy-production.yml` deploys production
+when code is pushed to the `production` branch. It can also be run manually from
+GitHub Actions.
+
+Add these GitHub repository secrets before enabling the workflow:
+
+- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account id.
+- `CLOUDFLARE_API_TOKEN`: an API token that can edit Workers and apply D1
+  migrations.
+
+The workflow runs:
+
+```bash
+npm ci
+npm run build
+npx wrangler d1 migrations apply quynh-baby-shop --remote
+npx wrangler deploy
+```
+
 ## Product Data
 
 The catalog now uses D1 through these Worker routes:
