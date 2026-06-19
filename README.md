@@ -120,8 +120,10 @@ The catalog now uses D1 through these Worker routes:
 - `GET /api/product-images/:id`: serve a cached public product image from R2.
 - `POST /api/try-on-requests`: create a pending try-on request with a private customer image.
 - `GET /api/admin/try-on-requests`: list try-on requests for admin review.
-- `PATCH /api/admin/try-on-requests/:id`: update a try-on request status.
+- `PATCH /api/admin/try-on-requests/:id`: update a try-on request status and optional admin note.
 - `GET /api/admin/try-on-requests/:id/image`: serve the private input image to authenticated admin users.
+- `GET /api/admin/try-on-requests/:id/result-image`: serve the private try-on result image to authenticated admin users.
+- `POST /api/admin/try-on-requests/:id/result-image`: upload a private try-on result image and mark the request completed.
 - `POST /api/admin/try-on-requests/cleanup`: delete expired private try-on images from R2 and clear their D1 keys.
 
 Admin endpoints require the signed admin session cookie.

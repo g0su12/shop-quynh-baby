@@ -34,6 +34,7 @@ type TryOnRequestRow = {
   customer_phone: string;
   customer_contact_channel: ContactChannel;
   input_image_key: string | null;
+  result_image_key: string | null;
   status: TryOnStatus;
   admin_note: string | null;
   created_at: string;
@@ -225,21 +226,25 @@ export async function updateTryOnRequestStatus(
   env: TryOnRequestsEnv,
   id: string,
   status: unknown,
-  adminNote: string,
+  adminNote?: unknown,
 ) {
   if (!isTryOnStatus(status)) {
     throw new TryOnRequestError("Trạng thái thử đồ không hợp lệ.", 400);
   }
 
+  const hasAdminNote = typeof adminNote === "string";
+  const nextAdminNote = hasAdminNote
+    ? cleanText(adminNote).slice(0, 500) || null
+    : null;
   const processedStatus = ["completed", "rejected", "failed"].includes(status);
   const result = await env.DB.prepare(
     `UPDATE try_on_requests
      SET status = ?,
-         admin_note = ?,
+         admin_note = CASE WHEN ? THEN ? ELSE admin_note END,
          processed_at = CASE WHEN ? THEN datetime('now') ELSE processed_at END
      WHERE id = ?`,
   )
-    .bind(status, cleanText(adminNote).slice(0, 500) || null, processedStatus ? 1 : 0, id)
+    .bind(status, hasAdminNote ? 1 : 0, nextAdminNote, processedStatus ? 1 : 0, id)
     .run();
 
   if (!result.meta.changes) {
@@ -249,21 +254,115 @@ export async function updateTryOnRequestStatus(
   return getTryOnRequest(env.DB, id);
 }
 
+export async function uploadTryOnRequestResultImage(
+  env: TryOnRequestsEnv,
+  requestId: string,
+  formData: FormData,
+) {
+  const image = formData.get("image");
+
+  if (!(image instanceof File)) {
+    throw new TryOnRequestError("Hãy chọn ảnh kết quả thử đồ.", 400);
+  }
+
+  validateTryOnImage(image);
+
+  const existing = await env.DB.prepare(
+    "SELECT result_image_key FROM try_on_requests WHERE id = ? LIMIT 1",
+  )
+    .bind(requestId)
+    .first<{ result_image_key: string | null }>();
+
+  if (!existing) {
+    throw new TryOnRequestError("Không tìm thấy yêu cầu thử đồ.", 404);
+  }
+
+  const extension = ALLOWED_IMAGE_TYPES.get(image.type);
+  const objectKey = `try-on-requests/${requestId}/result.${extension}`;
+
+  await env.TRY_ON_IMAGES.put(objectKey, image.stream(), {
+    httpMetadata: {
+      contentType: image.type,
+      cacheControl: "private, max-age=0, no-store",
+    },
+    customMetadata: {
+      originalName: image.name.slice(0, 180),
+      requestId,
+      role: "result",
+    },
+  });
+
+  try {
+    const result = await env.DB.prepare(
+      `UPDATE try_on_requests
+       SET result_image_key = ?,
+           status = 'completed',
+           processed_at = datetime('now'),
+           expires_at = datetime('now', ?)
+       WHERE id = ?`,
+    )
+      .bind(objectKey, `+${TRY_ON_REQUEST_TTL_HOURS} hours`, requestId)
+      .run();
+
+    if (!result.meta.changes) {
+      await env.TRY_ON_IMAGES.delete(objectKey);
+      throw new TryOnRequestError("Không tìm thấy yêu cầu thử đồ.", 404);
+    }
+  } catch (error) {
+    if (!(error instanceof TryOnRequestError)) {
+      await env.TRY_ON_IMAGES.delete(objectKey);
+    }
+    throw error;
+  }
+
+  if (
+    existing.result_image_key &&
+    existing.result_image_key !== objectKey
+  ) {
+    await env.TRY_ON_IMAGES.delete(existing.result_image_key);
+  }
+
+  const updatedRequest = await getTryOnRequest(env.DB, requestId);
+
+  if (!updatedRequest) {
+    throw new TryOnRequestError("Không tìm thấy yêu cầu thử đồ.", 404);
+  }
+
+  return updatedRequest;
+}
+
 export async function getTryOnRequestInputImage(
   env: TryOnRequestsEnv,
   requestId: string,
 ) {
+  return getTryOnRequestImage(env, requestId, "input");
+}
+
+export async function getTryOnRequestResultImage(
+  env: TryOnRequestsEnv,
+  requestId: string,
+) {
+  return getTryOnRequestImage(env, requestId, "result");
+}
+
+async function getTryOnRequestImage(
+  env: TryOnRequestsEnv,
+  requestId: string,
+  imageKind: "input" | "result",
+) {
+  const keyColumn =
+    imageKind === "input" ? "input_image_key" : "result_image_key";
   const request = await env.DB.prepare(
-    "SELECT input_image_key FROM try_on_requests WHERE id = ? LIMIT 1",
+    `SELECT ${keyColumn} AS image_key FROM try_on_requests WHERE id = ? LIMIT 1`,
   )
     .bind(requestId)
-    .first<{ input_image_key: string | null }>();
+    .first<{ image_key: string | null }>();
 
-  if (!request?.input_image_key) {
+  if (!request?.image_key) {
     return null;
   }
 
-  const object = await env.TRY_ON_IMAGES.get(request.input_image_key);
+  const object = await env.TRY_ON_IMAGES.get(request.image_key);
 
   if (!object) {
     return null;
@@ -298,6 +397,9 @@ function mapTryOnRequest(row: TryOnRequestRow) {
     customerContactChannel: row.customer_contact_channel,
     inputImageUrl: row.input_image_key
       ? `/api/admin/try-on-requests/${row.id}/image`
+      : "",
+    resultImageUrl: row.result_image_key
+      ? `/api/admin/try-on-requests/${row.id}/result-image`
       : "",
     status: row.status,
     adminNote: row.admin_note || "",

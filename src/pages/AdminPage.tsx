@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type MouseEvent,
 } from "react";
@@ -45,6 +46,7 @@ import {
   cleanupExpiredTryOnRequests,
   fetchAdminTryOnRequests,
   updateAdminTryOnRequestStatus,
+  uploadAdminTryOnResultImage,
 } from "../api/tryOnRequests";
 import { products as mockProducts } from "../data/mockProducts";
 import type {
@@ -66,6 +68,7 @@ const mockTryOnRequests: TryOnRequest[] = [
     customerPhone: "09xx xxx 128",
     customerContactChannel: "zalo",
     inputImageUrl: "",
+    resultImageUrl: "",
     status: "pending",
     adminNote: "",
     createdAt: new Date().toISOString(),
@@ -81,6 +84,7 @@ const mockTryOnRequests: TryOnRequest[] = [
     customerPhone: "09xx xxx 204",
     customerContactChannel: "facebook",
     inputImageUrl: "",
+    resultImageUrl: "",
     status: "approved",
     adminNote: "",
     createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
@@ -109,6 +113,26 @@ const tryOnStatusLabel: Record<TryOnStatus, string> = {
   rejected: "Từ chối",
   failed: "Lỗi",
 };
+
+const tryOnStatusOptions: TryOnStatus[] = [
+  "pending",
+  "approved",
+  "processing",
+  "completed",
+  "rejected",
+  "failed",
+];
+
+const tryOnStatusFilterOptions: Array<{
+  label: string;
+  value: TryOnStatus | "all";
+}> = [
+  { label: "Tất cả", value: "all" },
+  ...tryOnStatusOptions.map((status) => ({
+    label: tryOnStatusLabel[status],
+    value: status,
+  })),
+];
 
 const genderLabel: Record<Product["gender"], string> = {
   boy: "Bé trai",
@@ -264,6 +288,11 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [tryOnCleanupMessage, setTryOnCleanupMessage] = useState("");
   const [isLoadingTryOnRequests, setIsLoadingTryOnRequests] = useState(true);
   const [tryOnActionId, setTryOnActionId] = useState("");
+  const [tryOnStatusFilter, setTryOnStatusFilter] =
+    useState<TryOnStatus | "all">("all");
+  const [tryOnNoteDrafts, setTryOnNoteDrafts] = useState<Record<string, string>>(
+    {},
+  );
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState("");
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
@@ -330,6 +359,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
         if (!ignore) {
           setTryOnRequests(nextRequests);
+          setTryOnNoteDrafts(getTryOnNoteDrafts(nextRequests));
           setTryOnError("");
         }
       } catch (error) {
@@ -540,6 +570,26 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     [normalizedMediaSearch, productsMissingImages],
   );
   const hasActiveMediaFilters = mediaSearch.trim() || mediaFilter !== "all";
+  const tryOnStatusCounts = useMemo(
+    () =>
+      tryOnRequests.reduce<Record<TryOnStatus, number>>(
+        (counts, request) => {
+          counts[request.status] += 1;
+          return counts;
+        },
+        getEmptyTryOnStatusCounts(),
+      ),
+    [tryOnRequests],
+  );
+  const filteredTryOnRequests = useMemo(
+    () =>
+      tryOnRequests.filter(
+        (request) =>
+          tryOnStatusFilter === "all" || request.status === tryOnStatusFilter,
+      ),
+    [tryOnRequests, tryOnStatusFilter],
+  );
+  const hasActiveTryOnFilters = tryOnStatusFilter !== "all";
 
   return (
     <main className="admin-shell">
@@ -809,7 +859,9 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                 <h2>Yêu cầu thử cho bé</h2>
               </div>
               <div className="admin-panel-heading-actions">
-                <span className="result-count">{tryOnRequests.length} yêu cầu</span>
+                <span className="result-count">
+                  {filteredTryOnRequests.length}/{tryOnRequests.length} yêu cầu
+                </span>
                 <button
                   className="secondary-button"
                   disabled={tryOnActionId === "cleanup"}
@@ -830,7 +882,6 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
             ) : null}
             {tryOnError ? (
               <div className="admin-data-notice" role="status">
-                <strong>Đang hiển thị dữ liệu mẫu.</strong>
                 <span>{tryOnError}</span>
               </div>
             ) : null}
@@ -839,16 +890,58 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                 Đang tải yêu cầu thử đồ từ D1...
               </div>
             ) : null}
+            <div className="try-on-toolbar" aria-label="Lọc yêu cầu thử đồ">
+              {tryOnStatusFilterOptions.map((option) => {
+                const count =
+                  option.value === "all"
+                    ? tryOnRequests.length
+                    : tryOnStatusCounts[option.value];
+
+                return (
+                  <button
+                    className="filter-chip"
+                    data-active={tryOnStatusFilter === option.value}
+                    key={option.value}
+                    onClick={() => setTryOnStatusFilter(option.value)}
+                    type="button"
+                  >
+                    {option.label}
+                    <span>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
             <div className="try-on-list">
-              {tryOnRequests.length > 0 ? (
-                tryOnRequests.map((request) => (
+              {filteredTryOnRequests.length > 0 ? (
+                filteredTryOnRequests.map((request) => {
+                  const noteDraft =
+                    tryOnNoteDrafts[request.id] ?? request.adminNote;
+                  const isSavingStatus =
+                    tryOnActionId === `status:${request.id}`;
+                  const isSavingNote = tryOnActionId === `note:${request.id}`;
+                  const isUploadingResult =
+                    tryOnActionId === `result:${request.id}`;
+
+                  return (
                   <article className="try-on-row" key={request.id}>
-                    <div className="try-on-avatar">
-                      {request.inputImageUrl ? (
-                        <img alt="" src={request.inputImageUrl} />
-                      ) : (
-                        <MagicWand aria-hidden="true" weight="duotone" />
-                      )}
+                    <div className="try-on-avatar-stack">
+                      <div className="try-on-avatar">
+                        {request.inputImageUrl ? (
+                          <img alt="" src={request.inputImageUrl} />
+                        ) : (
+                          <MagicWand aria-hidden="true" weight="duotone" />
+                        )}
+                      </div>
+                      <div
+                        className="try-on-avatar try-on-result-avatar"
+                        data-empty={!request.resultImageUrl}
+                      >
+                        {request.resultImageUrl ? (
+                          <img alt="" src={request.resultImageUrl} />
+                        ) : (
+                          <MagicWand aria-hidden="true" weight="duotone" />
+                        )}
+                      </div>
                     </div>
                     <div className="try-on-main">
                       <div className="try-on-title-row">
@@ -870,8 +963,41 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                           ? ` · Hết hạn ${formatAdminDate(request.expiresAt)}`
                           : ""}
                       </small>
+                      <label className="try-on-note-field">
+                        <span>Ghi chú nội bộ</span>
+                        <textarea
+                          disabled={isSavingNote || isSavingStatus}
+                          maxLength={500}
+                          onChange={(event) =>
+                            handleTryOnNoteChange(request.id, event.target.value)
+                          }
+                          placeholder="Ví dụ: bé cao khoảng 110cm, ưu tiên màu sáng"
+                          rows={2}
+                          value={noteDraft}
+                        />
+                      </label>
                     </div>
                     <div className="try-on-actions">
+                      <label className="try-on-status-control">
+                        <span>Trạng thái</span>
+                        <select
+                          disabled={isSavingStatus}
+                          onChange={(event) =>
+                            void handleTryOnStatusChange(
+                              request,
+                              event.target.value as TryOnStatus,
+                            )
+                          }
+                          value={request.status}
+                        >
+                          {tryOnStatusOptions.map((status) => (
+                            <option key={status} value={status}>
+                              {tryOnStatusLabel[status]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="try-on-action-row">
                       {request.inputImageUrl ? (
                         <>
                           <a
@@ -898,28 +1024,75 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                           <span>Xem</span>
                         </button>
                       )}
+                        {request.resultImageUrl ? (
+                          <>
+                            <a
+                              className="secondary-button"
+                              href={request.resultImageUrl}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <Eye aria-hidden="true" />
+                              <span>Kết quả</span>
+                            </a>
+                            <a
+                              className="secondary-button"
+                              download
+                              href={request.resultImageUrl}
+                            >
+                              <Download aria-hidden="true" />
+                              <span>Tải kết quả</span>
+                            </a>
+                          </>
+                        ) : null}
+                        <label
+                          className="secondary-button try-on-upload-result"
+                          data-disabled={isUploadingResult}
+                        >
+                          <Upload aria-hidden="true" />
+                          <span>
+                            {isUploadingResult
+                              ? "Đang tải"
+                              : request.resultImageUrl
+                                ? "Đổi kết quả"
+                                : "Tải kết quả"}
+                          </span>
+                          <input
+                            accept="image/jpeg,image/png,image/webp"
+                            disabled={isUploadingResult}
+                            onChange={(event) =>
+                              void handleTryOnResultUpload(request, event)
+                            }
+                            type="file"
+                          />
+                        </label>
+                      </div>
                       <button
                         className="primary-button"
-                        disabled={
-                          request.status !== "pending" ||
-                          tryOnActionId === request.id
-                        }
-                        onClick={() => void handleTryOnApprove(request)}
+                        disabled={isSavingNote || noteDraft === request.adminNote}
+                        onClick={() => void handleTryOnSaveNote(request)}
                         type="button"
                       >
                         <Check aria-hidden="true" />
-                        <span>
-                          {tryOnActionId === request.id ? "Đang duyệt" : "Duyệt"}
-                        </span>
+                        <span>{isSavingNote ? "Đang lưu" : "Lưu ghi chú"}</span>
                       </button>
                     </div>
                   </article>
-                ))
+                  );
+                })
               ) : (
                 <AdminEmptyState
                   icon={MagicWand}
-                  title="Chưa có yêu cầu thử đồ"
-                  description="Yêu cầu mới sẽ xuất hiện ở đây sau khi khách gửi ảnh từ trang sản phẩm."
+                  title={
+                    hasActiveTryOnFilters
+                      ? "Không có yêu cầu ở trạng thái này"
+                      : "Chưa có yêu cầu thử đồ"
+                  }
+                  description={
+                    hasActiveTryOnFilters
+                      ? "Đổi bộ lọc trạng thái để xem các yêu cầu khác."
+                      : "Yêu cầu mới sẽ xuất hiện ở đây sau khi khách gửi ảnh từ trang sản phẩm."
+                  }
                 />
               )}
             </div>
@@ -1231,30 +1404,120 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     }
   }
 
-  async function handleTryOnApprove(request: TryOnRequest) {
+  function handleTryOnNoteChange(requestId: string, adminNote: string) {
+    setTryOnNoteDrafts((current) => ({
+      ...current,
+      [requestId]: adminNote,
+    }));
+  }
+
+  async function handleTryOnStatusChange(
+    request: TryOnRequest,
+    status: TryOnStatus,
+  ) {
+    if (request.status === status) {
+      return;
+    }
+
     setTryOnError("");
     setTryOnCleanupMessage("");
-    setTryOnActionId(request.id);
+    setTryOnActionId(`status:${request.id}`);
 
     try {
       const updatedRequest = await updateAdminTryOnRequestStatus(
         request.id,
-        "approved",
+        status,
+        tryOnNoteDrafts[request.id] ?? request.adminNote,
       );
-      setTryOnRequests((current) =>
-        current.map((item) =>
-          item.id === updatedRequest.id ? updatedRequest : item,
-        ),
-      );
+      applyUpdatedTryOnRequest(updatedRequest);
     } catch (error) {
       setTryOnError(
         error instanceof Error
           ? error.message
-          : "Không thể duyệt yêu cầu thử đồ.",
+          : "Không thể cập nhật trạng thái thử đồ.",
       );
     } finally {
       setTryOnActionId("");
     }
+  }
+
+  async function handleTryOnSaveNote(request: TryOnRequest) {
+    setTryOnError("");
+    setTryOnCleanupMessage("");
+    setTryOnActionId(`note:${request.id}`);
+
+    try {
+      const updatedRequest = await updateAdminTryOnRequestStatus(
+        request.id,
+        request.status,
+        tryOnNoteDrafts[request.id] ?? request.adminNote,
+      );
+      applyUpdatedTryOnRequest(updatedRequest);
+    } catch (error) {
+      setTryOnError(
+        error instanceof Error
+          ? error.message
+          : "Không thể lưu ghi chú thử đồ.",
+      );
+    } finally {
+      setTryOnActionId("");
+    }
+  }
+
+  async function handleTryOnResultUpload(
+    request: TryOnRequest,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const imageFile = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!imageFile) {
+      return;
+    }
+
+    setTryOnError("");
+    setTryOnCleanupMessage("");
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(imageFile.type)) {
+      setTryOnError("Chỉ hỗ trợ ảnh kết quả JPEG, PNG hoặc WebP.");
+      return;
+    }
+
+    if (imageFile.size > 5 * 1024 * 1024) {
+      setTryOnError("Ảnh kết quả phải nhỏ hơn hoặc bằng 5 MB.");
+      return;
+    }
+
+    setTryOnActionId(`result:${request.id}`);
+
+    try {
+      const updatedRequest = await uploadAdminTryOnResultImage(
+        request.id,
+        imageFile,
+      );
+      applyUpdatedTryOnRequest(updatedRequest);
+      setTryOnCleanupMessage("Đã lưu ảnh kết quả và chuyển yêu cầu sang hoàn tất.");
+    } catch (error) {
+      setTryOnError(
+        error instanceof Error
+          ? error.message
+          : "Không thể tải ảnh kết quả thử đồ.",
+      );
+    } finally {
+      setTryOnActionId("");
+    }
+  }
+
+  function applyUpdatedTryOnRequest(updatedRequest: TryOnRequest) {
+    setTryOnRequests((current) =>
+      current.map((item) =>
+        item.id === updatedRequest.id ? updatedRequest : item,
+      ),
+    );
+    setTryOnNoteDrafts((current) => ({
+      ...current,
+      [updatedRequest.id]: updatedRequest.adminNote,
+    }));
   }
 
   async function handleTryOnCleanup() {
@@ -1728,6 +1991,24 @@ function getTryOnStatusTone(status: TryOnStatus) {
     default:
       return "muted";
   }
+}
+
+function getEmptyTryOnStatusCounts(): Record<TryOnStatus, number> {
+  return {
+    pending: 0,
+    approved: 0,
+    processing: 0,
+    completed: 0,
+    rejected: 0,
+    failed: 0,
+  };
+}
+
+function getTryOnNoteDrafts(requests: TryOnRequest[]) {
+  return requests.reduce<Record<string, string>>((drafts, request) => {
+    drafts[request.id] = request.adminNote;
+    return drafts;
+  }, {});
 }
 
 function formatAdminDate(value: string) {

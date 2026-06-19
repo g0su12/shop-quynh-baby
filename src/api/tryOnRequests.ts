@@ -60,13 +60,30 @@ export async function fetchAdminTryOnRequests() {
 export async function updateAdminTryOnRequestStatus(
   id: string,
   status: TryOnStatus,
-  adminNote = "",
+  adminNote?: string,
 ) {
+  const payload =
+    typeof adminNote === "string" ? { adminNote, status } : { status };
   const response = await requestJson<TryOnRequestResponse>(
     `/api/admin/try-on-requests/${id}`,
     {
       method: "PATCH",
-      body: JSON.stringify({ adminNote, status }),
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return response.request;
+}
+
+export async function uploadAdminTryOnResultImage(id: string, imageFile: File) {
+  const formData = new FormData();
+  formData.append("image", imageFile);
+
+  const response = await requestJson<TryOnRequestResponse>(
+    `/api/admin/try-on-requests/${id}/result-image`,
+    {
+      method: "POST",
+      body: formData,
     },
   );
 

@@ -20,7 +20,7 @@ export const onRequestPatch: PagesFunction<TryOnRequestsEnv> = async (context) =
       context.env,
       id,
       payload.status,
-      payload.adminNote || "",
+      payload.adminNote,
     );
 
     if (!request) {

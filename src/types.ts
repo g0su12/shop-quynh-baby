@@ -80,6 +80,7 @@ export type TryOnRequest = {
   customerPhone: string;
   customerContactChannel: ContactChannel;
   inputImageUrl: string;
+  resultImageUrl: string;
   status: TryOnStatus;
   adminNote: string;
   createdAt: string;
