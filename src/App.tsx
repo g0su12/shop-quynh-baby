@@ -1,11 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import {
   ArrowLeft,
   ChevronRight,
+  ImagePlus,
   MapPin,
   MessageCircle,
   Phone,
   Search,
+  Send,
 } from "lucide-react";
 import {
   Baby,
@@ -18,13 +27,26 @@ import {
 import SiteSwitcher from "./components/SiteSwitcher";
 import AdminPage from "./pages/AdminPage";
 import { fetchPublicProductBySlug, fetchPublicProducts } from "./api/products";
+import { createTryOnRequest } from "./api/tryOnRequests";
 import {
-  ageOptions,
   categoryOptions,
   genderOptions,
   products as mockProducts,
 } from "./data/mockProducts";
-import type { Gender, Product, StockStatus } from "./types";
+import type { ContactChannel, Gender, Product, StockStatus } from "./types";
+import {
+  formatFileSize,
+  optimizeImageForUpload,
+} from "./utils/optimizeImage";
+import {
+  catalogAgeYearsRange,
+  catalogWeightKgRange,
+  formatAgeYears,
+  formatWeightKg,
+  getProductAgeRange,
+  getProductWeightRange,
+  rangeIncludesValue,
+} from "./utils/productRange";
 
 const shopName = import.meta.env.VITE_SHOP_NAME || "Quynh Baby Shop";
 const shopPhone = import.meta.env.VITE_SHOP_PHONE || "0857036878";
@@ -34,6 +56,24 @@ const facebookUrl =
   "https://www.facebook.com/nguyen.nhu.quynh.506701";
 const mapsUrl =
   import.meta.env.VITE_SHOP_MAPS_URL || "https://maps.app.goo.gl/RebED1MNfFsy4BsG9";
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: HTMLElement,
+        options: {
+          callback: (token: string) => void;
+          "error-callback": () => void;
+          sitekey: string;
+          theme: "light";
+        },
+      ) => string;
+      reset: (widgetId?: string) => void;
+    };
+  }
+}
 
 const categoryHighlights = [
   {
@@ -121,7 +161,8 @@ function PublicCatalog() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("Tất cả");
   const [gender, setGender] = useState("Tất cả");
-  const [age, setAge] = useState("Tất cả");
+  const [selectedAgeYears, setSelectedAgeYears] = useState<number | null>(null);
+  const [selectedWeightKg, setSelectedWeightKg] = useState<number | null>(null);
   const [size, setSize] = useState("Tất cả");
   const [stock, setStock] = useState("Tất cả");
 
@@ -156,19 +197,22 @@ function PublicCatalog() {
   }, [catalogProducts]);
 
   const filteredProducts = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const normalizedSearch = normalizeCatalogSearch(search);
 
     return catalogProducts.filter((product) => {
       const matchesSearch =
         !normalizedSearch ||
-        product.name.toLowerCase().includes(normalizedSearch) ||
-        product.category.toLowerCase().includes(normalizedSearch) ||
-        product.sizes.some((size) => size.toLowerCase().includes(normalizedSearch));
+        normalizeCatalogSearch(product.name).includes(normalizedSearch);
 
       const matchesCategory = category === "Tất cả" || product.category === category;
       const selectedGender = genderValue[gender];
       const matchesGender = selectedGender === "all" || product.gender === selectedGender;
-      const matchesAge = age === "Tất cả" || product.ageGroup === age;
+      const matchesAge =
+        selectedAgeYears === null ||
+        rangeIncludesValue(getProductAgeRange(product), selectedAgeYears * 12);
+      const matchesWeight =
+        selectedWeightKg === null ||
+        rangeIncludesValue(getProductWeightRange(product), selectedWeightKg);
       const matchesSize = size === "Tất cả" || product.sizes.includes(size);
       const selectedStock = stockValue[stock];
       const matchesStock =
@@ -179,11 +223,21 @@ function PublicCatalog() {
         matchesCategory &&
         matchesGender &&
         matchesAge &&
+        matchesWeight &&
         matchesSize &&
         matchesStock
       );
     });
-  }, [age, catalogProducts, category, gender, search, size, stock]);
+  }, [
+    catalogProducts,
+    category,
+    gender,
+    search,
+    selectedAgeYears,
+    selectedWeightKg,
+    size,
+    stock,
+  ]);
 
   return (
     <main>
@@ -296,13 +350,30 @@ function PublicCatalog() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Tìm theo tên, size, danh mục"
+              placeholder="Tìm theo tên sản phẩm"
               type="search"
             />
           </label>
           <FilterGroup label="Danh mục" options={categoryOptions} value={category} onChange={setCategory} />
           <FilterGroup label="Giới tính" options={genderOptions} value={gender} onChange={setGender} />
-          <FilterGroup label="Độ tuổi" options={ageOptions} value={age} onChange={setAge} />
+          <RangeFilter
+            label="Độ tuổi của bé"
+            max={catalogAgeYearsRange.max}
+            min={catalogAgeYearsRange.min}
+            onChange={setSelectedAgeYears}
+            step={1}
+            value={selectedAgeYears}
+            valueLabel={formatAgeYears}
+          />
+          <RangeFilter
+            label="Cân nặng của bé"
+            max={catalogWeightKgRange.max}
+            min={catalogWeightKgRange.min}
+            onChange={setSelectedWeightKg}
+            step={1}
+            value={selectedWeightKg}
+            valueLabel={formatWeightKg}
+          />
           <FilterGroup label="Size" options={sizeOptions} value={size} onChange={setSize} />
           <FilterGroup label="Tình trạng" options={stockFilterOptions} value={stock} onChange={setStock} />
         </div>
@@ -315,6 +386,65 @@ function PublicCatalog() {
       </section>
     </main>
   );
+}
+
+type RangeFilterProps = {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number | null;
+  valueLabel: (value: number) => string;
+  onChange: (value: number | null) => void;
+};
+
+function RangeFilter({
+  label,
+  max,
+  min,
+  onChange,
+  step,
+  value,
+  valueLabel,
+}: RangeFilterProps) {
+  const sliderValue = value ?? min;
+
+  return (
+    <fieldset className="range-filter">
+      <legend>{label}</legend>
+      <div className="range-filter-heading">
+        <strong>{value === null ? "Tất cả" : valueLabel(value)}</strong>
+        {value !== null ? (
+          <button onClick={() => onChange(null)} type="button">
+            Bỏ lọc
+          </button>
+        ) : null}
+      </div>
+      <input
+        aria-label={label}
+        max={max}
+        min={min}
+        onChange={(event) => onChange(Number(event.target.value))}
+        step={step}
+        type="range"
+        value={sliderValue}
+      />
+      <div className="range-filter-limits" aria-hidden="true">
+        <span>{valueLabel(min)}</span>
+        <span>{valueLabel(max)}</span>
+      </div>
+    </fieldset>
+  );
+}
+
+function normalizeCatalogSearch(value: string) {
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase();
 }
 
 type FilterGroupProps = {
@@ -416,6 +546,20 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
   const [product, setProduct] = useState<Product | null>();
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [selectedImageId, setSelectedImageId] = useState("");
+  const [tryOnCustomerName, setTryOnCustomerName] = useState("");
+  const [tryOnCustomerPhone, setTryOnCustomerPhone] = useState("");
+  const [tryOnContactChannel, setTryOnContactChannel] =
+    useState<ContactChannel>("zalo");
+  const [tryOnImage, setTryOnImage] = useState<File | null>(null);
+  const [tryOnImageSummary, setTryOnImageSummary] = useState("");
+  const [tryOnTurnstileToken, setTryOnTurnstileToken] = useState("");
+  const [tryOnMessage, setTryOnMessage] = useState("");
+  const [tryOnError, setTryOnError] = useState("");
+  const [isPreparingTryOnImage, setIsPreparingTryOnImage] = useState(false);
+  const [isSendingTryOnRequest, setIsSendingTryOnRequest] = useState(false);
+  const turnstileContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetIdRef = useRef("");
+  const tryOnImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -495,6 +639,157 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
       images.some((image) => image.id === current) ? current : images[0].id,
     );
   }, [images]);
+
+  useEffect(() => {
+    if (!turnstileSiteKey || !turnstileContainerRef.current) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    function renderTurnstileWidget() {
+      if (
+        isCancelled ||
+        !window.turnstile ||
+        !turnstileContainerRef.current ||
+        turnstileWidgetIdRef.current
+      ) {
+        return;
+      }
+
+      turnstileWidgetIdRef.current = window.turnstile.render(
+        turnstileContainerRef.current,
+        {
+          sitekey: turnstileSiteKey,
+          theme: "light",
+          callback: setTryOnTurnstileToken,
+          "error-callback": () => setTryOnTurnstileToken(""),
+        },
+      );
+    }
+
+    if (window.turnstile) {
+      renderTurnstileWidget();
+      return;
+    }
+
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://challenges.cloudflare.com/turnstile/v0/api.js"]',
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener("load", renderTurnstileWidget, {
+        once: true,
+      });
+      return () => {
+        isCancelled = true;
+        existingScript.removeEventListener("load", renderTurnstileWidget);
+      };
+    }
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.addEventListener("load", renderTurnstileWidget, { once: true });
+    document.head.appendChild(script);
+
+    return () => {
+      isCancelled = true;
+      script.removeEventListener("load", renderTurnstileWidget);
+    };
+  }, [product?.id]);
+
+  const canSubmitTryOnRequest = product?.stockStatus !== "out_of_stock";
+
+  async function handleTryOnImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    setTryOnError("");
+    setTryOnMessage("");
+
+    if (!file) {
+      return;
+    }
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setTryOnError("Chỉ nhận ảnh JPEG, PNG hoặc WebP.");
+      return;
+    }
+
+    setIsPreparingTryOnImage(true);
+
+    try {
+      const optimizedImage = await optimizeImageForUpload(file);
+      setTryOnImage(optimizedImage.file);
+      setTryOnImageSummary(
+        optimizedImage.wasOptimized
+          ? `${formatFileSize(optimizedImage.originalSize)} -> ${formatFileSize(
+              optimizedImage.file.size,
+            )}`
+          : `${optimizedImage.file.name} · ${formatFileSize(optimizedImage.file.size)}`,
+      );
+    } catch (error) {
+      setTryOnImage(null);
+      setTryOnImageSummary("");
+      setTryOnError(
+        error instanceof Error ? error.message : "Không thể xử lý ảnh này.",
+      );
+    } finally {
+      setIsPreparingTryOnImage(false);
+    }
+  }
+
+  async function handleTryOnSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!product || !canSubmitTryOnRequest) {
+      return;
+    }
+
+    setTryOnError("");
+    setTryOnMessage("");
+
+    if (!tryOnImage) {
+      setTryOnError("Hãy chọn ảnh để shop tư vấn.");
+      return;
+    }
+
+    if (turnstileSiteKey && !tryOnTurnstileToken) {
+      setTryOnError("Vui lòng xác minh chống spam trước khi gửi.");
+      return;
+    }
+
+    setIsSendingTryOnRequest(true);
+
+    try {
+      await createTryOnRequest({
+        productId: product.id,
+        customerName: tryOnCustomerName,
+        customerPhone: tryOnCustomerPhone,
+        customerContactChannel: tryOnContactChannel,
+        imageFile: tryOnImage,
+        turnstileToken: tryOnTurnstileToken,
+      });
+      setTryOnCustomerName("");
+      setTryOnCustomerPhone("");
+      setTryOnContactChannel("zalo");
+      setTryOnImage(null);
+      setTryOnImageSummary("");
+      setTryOnTurnstileToken("");
+      window.turnstile?.reset(turnstileWidgetIdRef.current);
+      if (tryOnImageInputRef.current) {
+        tryOnImageInputRef.current.value = "";
+      }
+      setTryOnMessage("Đã gửi yêu cầu. Shop sẽ liên hệ lại theo kênh bạn chọn.");
+    } catch (error) {
+      setTryOnError(
+        error instanceof Error ? error.message : "Không thể gửi yêu cầu thử đồ.",
+      );
+    } finally {
+      setIsSendingTryOnRequest(false);
+    }
+  }
 
   return (
     <main>
@@ -661,6 +956,115 @@ function ProductDetailPage({ slug }: ProductDetailPageProps) {
                   </div>
                 ))}
               </div>
+            </div>
+          </section>
+
+          <section className="try-on-request-section">
+            <div className="try-on-request-panel">
+              <div className="detail-panel-heading">
+                <div>
+                  <p className="eyebrow">Try-on</p>
+                  <h2>Gửi ảnh để shop tư vấn thử đồ</h2>
+                </div>
+                <span className="result-count">
+                  {canSubmitTryOnRequest ? "Nhận yêu cầu" : "Đang hết hàng"}
+                </span>
+              </div>
+
+              <form className="try-on-request-form" onSubmit={handleTryOnSubmit}>
+                <div className="try-on-request-grid">
+                  <label className="try-on-field">
+                    <span>Tên khách</span>
+                    <input
+                      autoComplete="name"
+                      maxLength={120}
+                      onChange={(event) => setTryOnCustomerName(event.target.value)}
+                      placeholder="Tên liên hệ"
+                      value={tryOnCustomerName}
+                    />
+                  </label>
+                  <label className="try-on-field">
+                    <span>Số điện thoại/Zalo</span>
+                    <input
+                      autoComplete="tel"
+                      maxLength={24}
+                      onChange={(event) => setTryOnCustomerPhone(event.target.value)}
+                      placeholder="Số để shop gọi lại"
+                      required
+                      value={tryOnCustomerPhone}
+                    />
+                  </label>
+                  <label className="try-on-field">
+                    <span>Kênh liên hệ</span>
+                    <select
+                      onChange={(event) =>
+                        setTryOnContactChannel(event.target.value as ContactChannel)
+                      }
+                      value={tryOnContactChannel}
+                    >
+                      <option value="zalo">Zalo</option>
+                      <option value="facebook">Facebook</option>
+                      <option value="phone">Gọi điện</option>
+                    </select>
+                  </label>
+                  <label className="try-on-upload">
+                    <ImagePlus aria-hidden="true" />
+                    <span>
+                      {isPreparingTryOnImage
+                        ? "Đang xử lý ảnh..."
+                        : tryOnImageSummary || "Chọn ảnh"}
+                    </span>
+                    <input
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={
+                        !canSubmitTryOnRequest ||
+                        isPreparingTryOnImage ||
+                        isSendingTryOnRequest
+                      }
+                      onChange={handleTryOnImageChange}
+                      ref={tryOnImageInputRef}
+                      type="file"
+                    />
+                  </label>
+                </div>
+
+                <p className="try-on-privacy-note">
+                  Ảnh chỉ dùng để shop tư vấn mẫu này và tự hết hạn sau 24 giờ.
+                </p>
+
+                {turnstileSiteKey ? (
+                  <div
+                    className="try-on-turnstile"
+                    ref={turnstileContainerRef}
+                  />
+                ) : null}
+
+                {tryOnError ? (
+                  <p className="try-on-message" data-tone="error" role="alert">
+                    {tryOnError}
+                  </p>
+                ) : null}
+                {tryOnMessage ? (
+                  <p className="try-on-message" data-tone="success" role="status">
+                    {tryOnMessage}
+                  </p>
+                ) : null}
+
+                <button
+                  className="primary-button"
+                  disabled={
+                    !canSubmitTryOnRequest ||
+                    isPreparingTryOnImage ||
+                    isSendingTryOnRequest
+                  }
+                  type="submit"
+                >
+                  <Send aria-hidden="true" />
+                  <span>
+                    {isSendingTryOnRequest ? "Đang gửi..." : "Gửi yêu cầu"}
+                  </span>
+                </button>
+              </form>
             </div>
           </section>
 

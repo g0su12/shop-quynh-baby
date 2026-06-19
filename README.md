@@ -9,7 +9,7 @@ Catalog website for a small offline children's fashion shop.
 - Cloudflare Worker generated from the file-based `functions/` API routes.
 - Cloudflare D1 for catalog data.
 - Cloudflare R2 for product and try-on images.
-- Cloudflare Turnstile for anti-spam forms later.
+- Cloudflare Turnstile for optional anti-spam validation on public forms.
 
 ## Local Setup
 
@@ -42,10 +42,25 @@ Generate a password hash:
 npm run admin:hash -- "your strong admin password"
 ```
 
+The script uses 100,000 PBKDF2 iterations because Cloudflare Workers rejects
+higher PBKDF2 iteration counts at runtime.
+
 Set these Cloudflare Worker secrets:
 
 - `ADMIN_PASSWORD_HASH`: the generated `pbkdf2_sha256$...` value.
 - `ADMIN_SESSION_SECRET`: a long random secret used to sign admin sessions.
+- `TURNSTILE_SECRET_KEY`: optional, enables Turnstile validation for public try-on uploads.
+
+If Turnstile is enabled, also set `VITE_TURNSTILE_SITE_KEY` for the frontend
+build environment.
+
+For temporary production debugging, set `ADMIN_AUTH_DEBUG=1` on the Worker.
+The login route writes structured `[admin-auth]` logs with only hash metadata
+such as segment count, iteration validity, whitespace/quote flags, and cookie
+security mode. Debug mode also includes a short non-reversible hash fingerprint
+and password input metadata such as length/whitespace flags. It does not log the
+admin password or the full password hash.
+Failed login and missing-secret cases are logged even when debug mode is off.
 
 Cloudflare dashboard secrets are not available on localhost. Wrangler loads
 local secrets from `.dev.vars`.
@@ -88,6 +103,27 @@ For Cloudflare Workers Builds, use:
 The build command creates both `dist` and the generated Worker entry point at
 `.wrangler/functions-build/index.js`.
 
+### GitHub Actions production deploy
+
+The workflow at `.github/workflows/deploy-production.yml` deploys production
+when code is pushed to the `production` branch. It can also be run manually from
+GitHub Actions.
+
+Add these GitHub repository secrets before enabling the workflow:
+
+- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account id.
+- `CLOUDFLARE_API_TOKEN`: an API token that can edit Workers and apply D1
+  migrations.
+
+The workflow runs:
+
+```bash
+npm ci
+npm run build
+npx wrangler d1 migrations apply quynh-baby-shop --remote
+npx wrangler deploy
+```
+
 ## Product Data
 
 The catalog now uses D1 through these Worker routes:
@@ -103,6 +139,13 @@ The catalog now uses D1 through these Worker routes:
 - `PATCH /api/admin/product-images/:id`: select the primary image.
 - `DELETE /api/admin/product-images/:id`: delete an image from D1 and R2.
 - `GET /api/product-images/:id`: serve a cached public product image from R2.
+- `POST /api/try-on-requests`: create a pending try-on request with a private customer image.
+- `GET /api/admin/try-on-requests`: list try-on requests for admin review.
+- `PATCH /api/admin/try-on-requests/:id`: update a try-on request status and optional admin note.
+- `GET /api/admin/try-on-requests/:id/image`: serve the private input image to authenticated admin users.
+- `GET /api/admin/try-on-requests/:id/result-image`: serve the private try-on result image to authenticated admin users.
+- `POST /api/admin/try-on-requests/:id/result-image`: upload a private try-on result image and mark the request completed.
+- `POST /api/admin/try-on-requests/cleanup`: delete expired private try-on images from R2 and clear their D1 keys.
 
 Admin endpoints require the signed admin session cookie.
 

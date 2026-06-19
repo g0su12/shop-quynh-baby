@@ -1,8 +1,10 @@
 const COOKIE_NAME = "qbs_admin_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const PBKDF2_ITERATIONS = 100_000;
 const encoder = new TextEncoder();
 
 export type AdminAuthEnv = {
+  ADMIN_AUTH_DEBUG?: string;
   ADMIN_PASSWORD_HASH?: string;
   ADMIN_SESSION_SECRET?: string;
 };
@@ -12,47 +14,75 @@ export function getAdminCookieName() {
 }
 
 export async function verifyAdminPassword(password: string, storedHash: string) {
-  try {
-    return await verifyPbkdf2Password(password, storedHash);
-  } catch {
-    return false;
-  }
+  const result = await verifyAdminPasswordWithDiagnostics(password, storedHash);
+
+  return result.ok;
 }
 
-async function verifyPbkdf2Password(password: string, storedHash: string) {
+export async function verifyAdminPasswordWithDiagnostics(
+  password: string,
+  storedHash: string,
+) {
   const [algorithm, iterationsText, saltText, hashText] = storedHash.split("$");
 
   if (algorithm !== "pbkdf2_sha256") {
-    return false;
+    return {
+      ok: false,
+      reason: "unsupported_algorithm",
+    };
   }
 
   const iterations = Number(iterationsText);
 
-  if (!Number.isInteger(iterations) || iterations < 100_000 || !saltText || !hashText) {
-    return false;
+  if (
+    !Number.isInteger(iterations) ||
+    iterations !== PBKDF2_ITERATIONS ||
+    !saltText ||
+    !hashText
+  ) {
+    return {
+      ok: false,
+      reason: "invalid_or_unsupported_hash_metadata",
+      expectedIterations: PBKDF2_ITERATIONS,
+    };
   }
 
-  const salt = base64UrlToBytes(saltText);
-  const expectedHash = base64UrlToBytes(hashText);
-  const passwordKey = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const derivedBits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt,
-      iterations,
-    },
-    passwordKey,
-    expectedHash.byteLength * 8,
-  );
+  try {
+    const salt = base64UrlToBytes(saltText);
+    const expectedHash = base64UrlToBytes(hashText);
+    const passwordKey = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(password),
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt,
+        iterations,
+      },
+      passwordKey,
+      expectedHash.byteLength * 8,
+    );
+    const ok = timingSafeEqual(new Uint8Array(derivedBits), expectedHash);
 
-  return timingSafeEqual(new Uint8Array(derivedBits), expectedHash);
+    return {
+      ok,
+      reason: ok ? "matched" : "hash_mismatch",
+      expectedHashBytes: expectedHash.byteLength,
+      derivedHashBytes: derivedBits.byteLength,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "verification_error",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export async function createAdminSessionCookie(secret: string, secure = true) {

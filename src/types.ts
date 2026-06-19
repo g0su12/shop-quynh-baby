@@ -2,6 +2,16 @@ export type Gender = "boy" | "girl" | "unisex";
 
 export type StockStatus = "in_stock" | "low_stock" | "out_of_stock";
 
+export type ContactChannel = "zalo" | "facebook" | "phone";
+
+export type TryOnStatus =
+  | "pending"
+  | "approved"
+  | "processing"
+  | "completed"
+  | "rejected"
+  | "failed";
+
 export type ProductVariant = {
   id: string;
   sizeLabel: string;
@@ -24,7 +34,11 @@ export type Product = {
   category: string;
   gender: Gender;
   ageGroup: string;
+  ageMinMonths: number | null;
+  ageMaxMonths: number | null;
   weightRange: string;
+  weightMinKg: number | null;
+  weightMaxKg: number | null;
   sizes: string[];
   colors: string[];
   stockStatus: StockStatus;
@@ -42,7 +56,11 @@ export type ProductInput = {
   category: string;
   gender: Gender;
   ageGroup: string;
+  ageMinMonths: number | null;
+  ageMaxMonths: number | null;
   weightRange: string;
+  weightMinKg: number | null;
+  weightMaxKg: number | null;
   stockStatus: StockStatus;
   isFeatured: boolean;
   isVisible: boolean;
@@ -51,4 +69,21 @@ export type ProductInput = {
     colorLabel: string;
     stockStatus: StockStatus;
   }>;
+};
+
+export type TryOnRequest = {
+  id: string;
+  productId: string;
+  productName: string;
+  productSlug: string;
+  customerName: string;
+  customerPhone: string;
+  customerContactChannel: ContactChannel;
+  inputImageUrl: string;
+  resultImageUrl: string;
+  status: TryOnStatus;
+  adminNote: string;
+  createdAt: string;
+  processedAt: string;
+  expiresAt: string;
 };
