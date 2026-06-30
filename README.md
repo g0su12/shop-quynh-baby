@@ -10,7 +10,8 @@ Catalog website for a small offline children's fashion shop.
 - Cloudflare D1 for catalog data.
 - Cloudflare R2 for product and try-on images.
 - Cloudflare Turnstile for optional anti-spam validation on public forms.
-- OpenAI Images API for optional admin AI try-on generation.
+- Cloudflare Pruna Image Try-On, with OpenAI Images API as an optional
+  fallback, for admin AI try-on generation.
 
 ## Local Setup
 
@@ -51,16 +52,44 @@ Set these Cloudflare Worker secrets:
 - `ADMIN_PASSWORD_HASH`: the generated `pbkdf2_sha256$...` value.
 - `ADMIN_SESSION_SECRET`: a long random secret used to sign admin sessions.
 - `TURNSTILE_SECRET_KEY`: optional, enables Turnstile validation for public try-on uploads.
-- `OPENAI_API_KEY`: optional, enables the admin "Tạo AI" try-on result action.
+- `OPENAI_API_KEY`: optional, only needed when `TRY_ON_AI_PROVIDER=openai`.
 
 If Turnstile is enabled, also set `VITE_TURNSTILE_SITE_KEY` for the frontend
 build environment.
 
-Optional OpenAI image settings can be configured as Worker variables:
+The admin "Tạo AI" action uses Cloudflare Pruna Image Try-On by default. The
+Worker AI binding is configured in `wrangler.toml` as `[ai] binding = "AI"`.
+Running real Workers AI inference in local `wrangler dev` still uses the
+Cloudflare account and may incur usage charges.
+
+Pruna is a third-party model, so Cloudflare routes it through AI Gateway Unified
+Billing. Before using it in production, open Cloudflare Dashboard > AI > AI
+Gateway and load credits. If the account is missing AI Gateway credentials or
+credits, the admin request may fail with `2021: Invalid User Credentials`.
+
+Optional AI try-on settings can be configured as Worker variables:
+
+- `TRY_ON_AI_PROVIDER`: defaults to `cloudflare-pruna`; set to `openai` to use
+  the OpenAI fallback.
+- `CLOUDFLARE_AI_GATEWAY_ID`: defaults to `default`; must match an AI Gateway in
+  the same Cloudflare account as the Worker.
+- `CLOUDFLARE_PRUNA_OUTPUT_FORMAT`: defaults to `jpg`; supported values are
+  `jpg`, `png`, and `webp`.
+- `CLOUDFLARE_PRUNA_OUTPUT_QUALITY`: defaults to `90` for JPG/WebP output.
+- `CLOUDFLARE_PRUNA_PRESERVE_INPUT_SIZE`: defaults to `true`.
+- `CLOUDFLARE_PRUNA_TURBO`: defaults to `false` for first quality checks.
+
+Optional OpenAI fallback image settings can be configured as Worker variables:
 
 - `OPENAI_IMAGE_MODEL`: defaults to `gpt-image-1`.
-- `OPENAI_IMAGE_SIZE`: defaults to `1024x1536`.
-- `OPENAI_IMAGE_QUALITY`: defaults to `medium`.
+- `OPENAI_IMAGE_SIZE`: defaults to `1024x1024` for faster first tests.
+- `OPENAI_IMAGE_QUALITY`: defaults to `low` for faster first tests.
+- `OPENAI_IMAGE_OUTPUT_FORMAT`: defaults to `jpeg` to reduce latency.
+- `OPENAI_IMAGE_OUTPUT_COMPRESSION`: defaults to `85` for JPEG/WebP output.
+
+`wrangler.toml` pins Worker placement near `aws:us-east-1` so outbound OpenAI
+requests do not default to nearby Cloudflare locations where the OpenAI API may
+return `Country, region, or territory not supported`.
 
 For temporary production debugging, set `ADMIN_AUTH_DEBUG=1` on the Worker.
 The login route writes structured `[admin-auth]` logs with only hash metadata

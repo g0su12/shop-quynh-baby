@@ -294,6 +294,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [tryOnNoteDrafts, setTryOnNoteDrafts] = useState<Record<string, string>>(
     {},
   );
+  const tryOnPollingIdsRef = useRef<Set<string>>(new Set());
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState("");
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
@@ -923,7 +924,8 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                   const isUploadingResult =
                     tryOnActionId === `result:${request.id}`;
                   const isGeneratingAi =
-                    tryOnActionId === `ai:${request.id}`;
+                    tryOnActionId === `ai:${request.id}` ||
+                    request.status === "processing";
 
                   return (
                   <article className="try-on-row" key={request.id}>
@@ -1059,7 +1061,9 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                           type="button"
                         >
                           <MagicWand aria-hidden="true" weight="duotone" />
-                          <span>{isGeneratingAi ? "Đang tạo" : "Tạo AI"}</span>
+                          <span>
+                            {isGeneratingAi ? "AI đang tạo" : "Tạo AI"}
+                          </span>
                         </button>
                         <label
                           className="secondary-button try-on-upload-result"
@@ -1493,7 +1497,16 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     try {
       const updatedRequest = await generateAdminTryOnResultImage(request.id);
       applyUpdatedTryOnRequest(updatedRequest);
-      setTryOnCleanupMessage("AI đã tạo ảnh kết quả cho yêu cầu thử đồ.");
+      if (updatedRequest.status === "processing") {
+        setTryOnCleanupMessage("AI đang tạo ảnh. Danh sách sẽ tự cập nhật.");
+        void pollTryOnRequestUntilSettled(request.id);
+      } else if (updatedRequest.status === "completed") {
+        setTryOnCleanupMessage("AI đã tạo xong ảnh kết quả.");
+      } else if (updatedRequest.status === "failed") {
+        setTryOnCleanupMessage(
+          "AI đã dừng xử lý. Kiểm tra ghi chú lỗi trong yêu cầu.",
+        );
+      }
     } catch (error) {
       setTryOnError(
         error instanceof Error
@@ -1514,6 +1527,49 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       }
     } finally {
       setTryOnActionId("");
+    }
+  }
+
+  async function pollTryOnRequestUntilSettled(requestId: string) {
+    if (tryOnPollingIdsRef.current.has(requestId)) {
+      return;
+    }
+
+    tryOnPollingIdsRef.current.add(requestId);
+
+    try {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        await wait(3000);
+
+        const nextRequests = await fetchAdminTryOnRequests();
+        setTryOnRequests(nextRequests);
+        setTryOnNoteDrafts(getTryOnNoteDrafts(nextRequests));
+
+        const nextRequest = nextRequests.find(
+          (request) => request.id === requestId,
+        );
+
+        if (!nextRequest || nextRequest.status !== "processing") {
+          setTryOnCleanupMessage(
+            nextRequest?.status === "completed"
+              ? "AI đã tạo xong ảnh kết quả."
+              : "AI đã dừng xử lý. Kiểm tra ghi chú lỗi trong yêu cầu.",
+          );
+          return;
+        }
+      }
+
+      setTryOnCleanupMessage(
+        "AI vẫn đang xử lý. Bạn có thể tải lại danh sách sau ít phút.",
+      );
+    } catch (error) {
+      setTryOnError(
+        error instanceof Error
+          ? error.message
+          : "Không thể cập nhật trạng thái tạo ảnh AI.",
+      );
+    } finally {
+      tryOnPollingIdsRef.current.delete(requestId);
     }
   }
 
@@ -2124,6 +2180,12 @@ function compareAdminProducts(
 
 function compareText(first: string, second: string) {
   return first.localeCompare(second, "vi", { numeric: true });
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 export default AdminPage;

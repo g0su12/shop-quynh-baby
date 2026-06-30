@@ -2,8 +2,17 @@ ADMIN_PASSWORD_HASH="pbkdf2_sha256$100000$replace-with-generated-hash"
 ADMIN_SESSION_SECRET="replace-with-a-long-random-secret"
 # Optional: enable Cloudflare Turnstile validation for public try-on uploads.
 TURNSTILE_SECRET_KEY=""
-# Optional: enable admin AI try-on generation.
+# Admin AI try-on generation provider: cloudflare-pruna or openai.
+TRY_ON_AI_PROVIDER="cloudflare-pruna"
+CLOUDFLARE_AI_GATEWAY_ID="default"
+CLOUDFLARE_PRUNA_OUTPUT_FORMAT="jpg"
+CLOUDFLARE_PRUNA_OUTPUT_QUALITY="90"
+CLOUDFLARE_PRUNA_PRESERVE_INPUT_SIZE="true"
+CLOUDFLARE_PRUNA_TURBO="false"
+# Optional: only needed when TRY_ON_AI_PROVIDER=openai.
 OPENAI_API_KEY=""
 OPENAI_IMAGE_MODEL="gpt-image-1"
-OPENAI_IMAGE_SIZE="1024x1536"
-OPENAI_IMAGE_QUALITY="medium"
+OPENAI_IMAGE_SIZE="1024x1024"
+OPENAI_IMAGE_QUALITY="low"
+OPENAI_IMAGE_OUTPUT_FORMAT="jpeg"
+OPENAI_IMAGE_OUTPUT_COMPRESSION="85"
